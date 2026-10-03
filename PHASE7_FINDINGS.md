@@ -209,3 +209,74 @@ pretoken being `[0xEF]` rather than the byte-mapped `[0xC3, 0xAF]`). If so, the
 earlier `pretokenizer()` segmentation evidence was taken on the mapped domain
 and does not by itself prove the encoder feeds BPE an identical pretoken — that
 needs re-establishing on the correct domain before the cache can be pinned.
+
+---
+
+# ROOT CAUSE PINNED: pretokenizer byte-span segmentation (not the cache)
+
+## Trace evidence (instrumented, env-gated by `GT_TRACE`)
+
+Instrumented `pack_pretoken_key`, `merge_short` seeding, and `PairRankTable::rank`.
+For the 6-byte reproducer `b'\xef@yp'`:
+
+    [PACK] bytes=[ef, 40, 79] n=3 mask_lo=0000000000ffffff key=030000000000000000000000007940ef
+    [PACK] bytes=[70]         n=1 mask_lo=00000000000000ff key=01000000000000000000000000000070
+    [SEED] pretoken=[ef, 40, 79] n=3 remapped=[<171>, <31>, <88>] pair_ranks=true
+    [RANK] pair=(171, 31) dense idx=350239 -> MISS
+    [RANK] pair=(31, 88)  dense idx=63576  -> MISS
+    IDS [171, 31, 88, 79]
+
+Every component below pretokenization is exonerated:
+
+- `pack_mask_halves`: n=1 -> `lo=0xFF`, n=2 -> `lo=0xFFFF`, n=3 -> `lo=0xFFFFFF`.
+  Correct. Keys carry the length in the top byte and bytes in the lanes,
+  little-endian, and are correct.
+- Byte remapping boundary: `remapped=[171, 31, 88]` is exactly
+  `br.mapping[0xEF]=171, br.mapping[0x40]=31, br.mapping[0x79]=88`. Correct.
+- `PairRankTable::rank(171,31)` -> MISS and `rank(31,88)` -> MISS are both
+  correct: neither pair merges. Dense index arithmetic is correct.
+
+## First divergent operation: the pretoken span
+
+The pretoken handed to BPE was **`[0xEF, 0x40, 0x79]` — one 3-byte pretoken** —
+where the correct segmentation is `[0xEF]`, `[0x40]`, `[0x79, 0x70]`.
+
+Because `y` and `p` were split across the pretoken boundary, the pair
+`(88, 79)` was never presented to the rank table at all. That is why the answer
+is the unmerged `[88, 79]` rather than `[4464]`. The rank table never got the
+chance to be wrong.
+
+Confirmed on raw bytes — the debug binding and the encoder agree exactly:
+
+    b'\xef@yp'  -> ['ef4079','70']      WRONG
+    b'a@yp'     -> ['61','40','7970']   correct
+    b'\xe0@yp'  -> ['e04079','70']      WRONG
+    b'\xe4@yp'  -> ['e4407970']         misgrouped but harmless (no wrong pair merges)
+    b'\xef@ypx' -> ['ef4079','7078']    WRONG
+
+`\xe4@yp` shows the misgrouping is broader than the six answer-changing bytes:
+it is also fused into a single 4-byte pretoken. It returns the right answer only
+by luck, because no pair spanning the unwanted boundary happens to merge. So
+the byte set that changes the OUTPUT (six bytes) is narrower than the byte set
+that missegments (at least 0xE0..0xFF).
+
+## Retraction
+
+The earlier claim "pretokenization is identical, therefore the defect is below
+pretokenization" was **wrong** and is withdrawn. It came from calling
+`pretokenizer()` on the byte-**mapped** alphabet, which takes a different code
+path and segments correctly. On raw bytes — the domain the encoder actually
+uses — the pretokenizer genuinely misgroups. There is no self-contradiction in
+the oracle's outputs and no cache defect.
+
+## Next steps
+
+1. Locate the span-segmentation defect in `src/pretokenize/` (the `fast`
+   scanner's high-byte handling versus `reference`), given that 0xE0..0xFF are
+   the 2- and 3-byte UTF-8 lead bytes and the pretokenizer must classify raw
+   bytes in the byte-level alphabet, not decode UTF-8.
+2. Minimal regression on the exact primitive: a pretokenizer span test asserting
+   `b'\xef@yp'` segments to `[ef] [40] [7970]`, plus the 256-byte sweep.
+3. Fix once, rebuild once, rerun: 6 triggers, 256 sweep, 155 divergences,
+   Phase-6 corpus, C differential, randomized byte corpus.
+4. Only then freeze a corrected Rust/C oracle hash.
