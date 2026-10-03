@@ -280,3 +280,62 @@ the oracle's outputs and no cache defect.
 3. Fix once, rebuild once, rerun: 6 triggers, 256 sweep, 155 divergences,
    Phase-6 corpus, C differential, randomized byte corpus.
 4. Only then freeze a corrected Rust/C oracle hash.
+
+---
+
+# Fix landed, verification PARTIAL — not frozen
+
+Commit `e749f8f` on `audit/phase6` in `baseline-fac0114`.
+Trace/archaeology isolated on `debug/forensic-trace` @ `c2cf96b` (not merged).
+
+## Root cause
+
+`decode_cp` in `src/pretokenize/fast/mod.rs` inferred a codepoint width from
+the lead byte's RANGE alone and never checked that the following bytes were
+real continuation bytes (`0b10xxxxxx`). Both `decode_cp_inbounds` and
+`decode_cp_near_end` did this.
+
+On a byte-level tokenizer the input is arbitrary bytes, so a byte that merely
+RESEMBLES a lead swallowed its neighbours: `0xEF` followed by an ASCII byte
+was decoded as a 3-byte char, and `advance_pos` consumed three bytes on input
+containing no such character. The pretoken span moved, splitting letter runs
+that must stay together. BPE was correct throughout; it was handed wrong
+boundaries.
+
+Fix: width is a proposal, validated against real continuation bytes. Not-a-lead
+or lead-without-continuations consumes exactly 1 byte and classifies `Other`.
+Continuation bytes in lead position (`0x80..0xBF`) propose no width;
+`0xF5..0xFF` are never leads. Valid UTF-8 keeps real widths.
+
+## Verified green
+
+- Phase-6 valid-UTF-8 oracle: `c8fa1aba...` **bit-identical**. Correctly scoped:
+  it remains the valid-UTF-8 oracle hash and is unchanged; it was never evidence
+  that arbitrary-byte tokenization worked.
+- Full Phase-6 suite: **117 passed / 0 failed / 20 ignored** (was 112 + 5 new).
+- Original C differential corpus (4821 docs): **0 mismatches**, C id-hash
+  `4155265f...` unchanged — the C was always right.
+- Six observable triggers, the harmless-but-wrong `0xE4` case, exhaustive
+  `0x00..0xFF` lead sweep, valid-UTF-8 widths, and invalid-UTF-8 span tiling all
+  pass as **span-level** regressions.
+
+## NOT frozen — two open items
+
+1. **3 residual C-vs-Rust mismatches** appear only on an EXPANDED corpus
+   (8921 docs, corpus=300/random=4000). They were invisible at corpus=200/
+   random=2000, so the earlier "0 mismatches" was true only of the smaller set.
+   Samples: `#3636`, `#4101`, `#4530` from the seeded fuzz corpus. Not yet
+   diagnosed.
+2. **The independent canonical reference disagrees with the oracle on 1525 /
+   8716** arbitrary-byte documents (e.g. `b'hello ! world!'`). Since C and Rust
+   agree on 8918/8921, the outlier is most likely my Python reference, not the
+   oracle — but that is an assumption, not a finding, and the reference must be
+   corrected or the comparison dropped before any hash is meaningful.
+
+## Next
+
+Diagnose the 3 residual mismatches; adjudicate the canonical reference against a
+second independent implementation (HF `tokenizers` fed the byte-mapped string,
+which is the only byte-correct way to drive it). Freeze the corrected
+arbitrary-byte hash only when Rust == C across old corpus, all regressions,
+minimal reproducers, arbitrary-byte corpus and fuzz, with the reference agreed.
