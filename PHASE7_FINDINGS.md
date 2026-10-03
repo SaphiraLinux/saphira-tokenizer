@@ -174,3 +174,38 @@ The C API is therefore kept clean and separable rather than coupled to the
 current standalone package layout: stages are independent translation units
 behind small headers, no global state, no knowledge of the CLI or of the Rust
 package layout.
+
+## Pre-fix fixture
+
+`/home/smalley/src-provenance/phase7/prefix_cache_defect_fixture.json`
+sha256 `94be4273b84768b5d0fa597d380ac4a22ea2db3e0855cdbd465234b0964246de`
+
+Contains: the 6 trigger bytes + control, the full 256-byte sweep, the isolation
+trio (`ypx_alone` / `at_ypx` / `ef_at_ypx`), the 6-byte minimal reproducer,
+expected canonical IDs from an independent reference, current wrong Rust IDs,
+the C's IDs, pretoken segmentation, and the three ordering experiments.
+This is forensic evidence, **not** an oracle hash.
+
+Sweep detail: `bytes([b]) + b'@yp'` disagrees for `0xE0 0xE1 0xE2 0xE3 0xEE 0xEF`.
+`0x20` also disagrees but for an unrelated, legitimate reason (the optional
+leading space in ` ?[^\s\p{L}\p{N}]+` makes `' @'` one pretoken), so the
+closed trigger set is the six high bytes.
+
+Wrong answer shape: `[.., 88, 79]` where `[.., 4464]` is expected. `88` and `79`
+are the single-byte tokens for `'y'` and `'p'`, i.e. the pair was left **unmerged**
+— as if the rank lookup for `(88, 79)` returned "no merge".
+
+## Causality: NOT yet established
+
+`set_max_cache_bytes(0 | 1KiB | 1MiB)` does **not** reproduce a bypass — the
+knob only governs resizing, and all six triggers stay wrong at every size. So
+the cache has NOT been proved or busted. A genuine bypass is still required:
+gate `probe_emit_slow`'s `get_or_slot` read and `probe_emit_chunk`'s `fast`
+predicate behind a temporary env var, rebuild the wheel, and re-run the A/B.
+
+Also still open: whether the encoder pretokenizes in the original byte domain
+(byte `0xEF` yields the single token `171`, which is only consistent with the
+pretoken being `[0xEF]` rather than the byte-mapped `[0xC3, 0xAF]`). If so, the
+earlier `pretokenizer()` segmentation evidence was taken on the mapped domain
+and does not by itself prove the encoder feeds BPE an identical pretoken — that
+needs re-establishing on the correct domain before the cache can be pinned.
