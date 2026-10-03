@@ -339,3 +339,57 @@ second independent implementation (HF `tokenizers` fed the byte-mapped string,
 which is the only byte-correct way to drive it). Freeze the corrected
 arbitrary-byte hash only when Rust == C across old corpus, all regressions,
 minimal reproducers, arbitrary-byte corpus and fuzz, with the reference agreed.
+
+---
+
+# Residuals localised: C is ALSO defective (two of three)
+
+Minimised from the 8921-doc corpus (batched delta-minimisation):
+`#3636 -> bd9b9ae9`, `#4101 -> 898881ab`, `#4530 -> b12773` (3-4 bytes each).
+All three reduce to **lone continuation bytes** — but they are NOT one defect
+class, and the C is not the clean reference.
+
+Adjudicated against an independent `regex` + reference-`encoder.py` transcription,
+recording the GPT-2 byte map explicitly (bytes -> `bytes_to_unicode` char) so
+all implementations are compared on the same string:
+
+| input | byte-map chars | ref spans | ref ids | Rust | C |
+|---|---|---|---|---|---|
+| `bd9b9ae9` | `½`(No) `Ľļé`(Ll) | `[bd] [9b9ae9]` | `[121,249,21253]` | `[121,249,248,165]` **WRONG** | `[121,249,21253]` ok |
+| `898881ab` | `īĪģ`(Ll) `«`(Pi) | `[898881] [ab]` | `[231,230,223,104]` | ok | `[231,230,43769]` **WRONG** |
+| `b12773` | `±`(Sm) `'`(Po) `s`(Ll) | `[b1 27] [73]` | `[109,6,82]` | ok | `[109,338]` **WRONG** |
+
+## C root cause (one class, two symptoms)
+
+A byte-level alphabet has no "invalid UTF-8" class. Every one of the 256 bytes
+maps to a real character with a real Unicode class — including bytes `0x80..0xBF`,
+which map into `U+0100..U+0143` and are **letters**. The C does it wrong twice:
+
+1. `gt_decode_next` treats a byte in `0x80..0xBF` in lead position as
+   `GT_CLS_INVALID_UTF8`, i.e. "other". But e.g. `0x81 -> U+0123 'ģ'` is `Ll`, a
+   **letter**. So `898881ab` should split `[898881]` (letters) from `[ab]`
+   (`'«'` = `Pi`, other); the C made one pretoken and merged `91,171`.
+2. The pretokenizer treats `GT_CLS_INVALID_UTF8` and "other" as **different
+   classes that break a run**. In the GPT-2 pattern they are the *same* class
+   (`[^\s\p{L}\p{N}]+`). So `b1 27` (`'±'` other + `'` other) must be one
+   pretoken; the C stopped at the invalid byte, then re-entered at the
+   apostrophe and matched the `'s` **contraction** branch — which the reference
+   never reaches, because the Other run had already consumed the apostrophe.
+
+Correct C design: map byte -> mapped codepoint FIRST (that is the alphabet),
+then classify the codepoint. There is no decode step and no invalid class on the
+bytes path. This also removes the pretokenizer's invalid/other distinction.
+
+## Rust residual (case 1 only)
+
+Rust emits `[bd9b9a] [e9]` where the classes are `No` then `Ll Ll Ll`, i.e. it
+failed to break the number->letter run boundary. Separate defect from the C's;
+not yet localised. Rust is correct on cases 2 and 3.
+
+## Status
+
+Phase 7 NOT frozen. `e749f8f` stands as the accepted candidate correction for the
+lead-width bug; it is not sufficient for arbitrary-byte parity.
+
+Next: fix the C's byte-map/class model, then localise the Rust case-1 boundary
+defect, then re-run all four implementations before any hash is frozen.
