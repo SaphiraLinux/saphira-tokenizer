@@ -1,0 +1,12 @@
+# Preserved pre-hardening upstream evidence tree (unmodified copy of
+# upstream/main fac0114). Kept on disk for provenance; never committed.
+/gigatoken/
+
+# Build artifacts
+/src/build/
+/src/build-asan/
+*.o
+
+# Python bytecode
+__pycache__/
+*.pyc

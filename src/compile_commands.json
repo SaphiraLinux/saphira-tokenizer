@@ -1,0 +1,54 @@
+[
+ {
+  "directory": "/home/smalley/.local/src/saphira-gigatoken/src",
+  "file": "lib/gt_common.c",
+  "arguments": [
+   "cc",
+   "-std=c11",
+   "-Iinclude",
+   "-c",
+   "lib/gt_common.c",
+   "-o",
+   "/dev/null"
+  ]
+ },
+ {
+  "directory": "/home/smalley/.local/src/saphira-gigatoken/src",
+  "file": "lib/gt_pretok.c",
+  "arguments": [
+   "cc",
+   "-std=c11",
+   "-Iinclude",
+   "-c",
+   "lib/gt_pretok.c",
+   "-o",
+   "/dev/null"
+  ]
+ },
+ {
+  "directory": "/home/smalley/.local/src/saphira-gigatoken/src",
+  "file": "lib/gt_unicode.c",
+  "arguments": [
+   "cc",
+   "-std=c11",
+   "-Iinclude",
+   "-c",
+   "lib/gt_unicode.c",
+   "-o",
+   "/dev/null"
+  ]
+ },
+ {
+  "directory": "/home/smalley/.local/src/saphira-gigatoken/src",
+  "file": "lib/gt_unicode_tables.c",
+  "arguments": [
+   "cc",
+   "-std=c11",
+   "-Iinclude",
+   "-c",
+   "lib/gt_unicode_tables.c",
+   "-o",
+   "/dev/null"
+  ]
+ }
+]
