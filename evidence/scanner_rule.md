@@ -65,3 +65,63 @@ malformed-lead path (Other) is correct and the reference agrees.
 CONFIRMED only for 0x89/0x88/0x81 (letters, from forensic case CONT) and 0xBD
 (No). The byte-alphabet fallback across the whole 80..BF and F5..FF bands still
 needs an exhaustive sweep before the C is written. Do not assume uniformity.
+
+---
+
+# Exhaustive fallback sweep, 80..BF and F5..FF (direct trace)
+
+Property under test: **no following byte sequence can cause width > 1.**
+
+| bait after the byte | 80..BF (64 bytes) | F5..FF (11 bytes) |
+|---|---|---|
+| isolated          | w=1 (all 64) | w=1 (all 11) |
+| + ASCII 0x61      | **w=2 (all 64)** | w=1 (all 11) |
+| + 1 continuation  | **w=2 (all 64)** | w=1 (all 11) |
+| + 2 continuations | **w=3 (all 64)** cp=U+0000 | w=1 (all 11) |
+| + 3 continuations | **w=3 (all 64)** | w=1 (all 11) |
+| + 4 continuations | **w=3 (all 64)** | w=1 (all 11) |
+
+## 80..BF: property VIOLATED universally
+
+All 64 bytes, in every non-isolated configuration, can be made to consume 2 or 3
+bytes. Two distinct mechanisms:
+
+1. `+ASCII` / `+1 continuation` -> w=2 via the near_end "proposal exceeds
+   remaining, eat the rest" branch (proposal is 3, remaining is 2).
+2. `+2 continuations` -> w=3 with an ASSEMBLED value. Three continuation bytes
+   assemble to U+0000, i.e. `80 80 80` is read as the character NUL.
+
+So `80..BF` reaching the width-3 arm is not a rare boundary accident. It is
+reachable for every byte in the band under ordinary input, and it is what
+produces the forensic failures (`89 88 81` -> U+9201, `BD 9B 9A` -> U+D6DA).
+
+Required permanent regression: for all 64 bytes, width == 1 under every bait.
+
+## F5..FF: property HOLDS
+
+All 11 bytes return w=1 under every bait tested, isolated or not. `F5..FF`
+already behaves as required. **Do not assume it shares `80..BF`'s fate — it does
+not, and the two bands need separate proofs.** This also retroactively confirms
+the `b0 < 0xF5` guard in `e749f8f` is doing real work.
+
+## Corrected contract
+
+    00..7F  ordinary byte, existing ASCII handling (0x20 stays whitespace)
+    80..BF  NEVER a lead; consume exactly 1;
+            class = category of that byte's GPT-2 byte-alphabet symbol
+    C0..DF  propose 2 | E0..EF propose 3 | F0..F4 propose 4
+            continuations valid   -> assemble, classify the assembled value
+            continuations invalid -> CP_INVALID / Other
+    F5..FF  never a lead; consume 1 (behaviour already correct)
+
+The byte-alphabet class must come from ONE auditable derivation —
+byte -> byte-alphabet codepoint -> the existing Unicode-category classifier —
+not a hand-maintained 256-entry table. A generated 256-entry table is acceptable
+only if generated from that rule and tested exhaustively against the derivation.
+Whitespace stays a byte-level property of 0x20; do not generalise the fallback
+onto ASCII.
+
+## Not yet done
+`80..BF` fallback class per byte is still only spot-checked (0x89/0x9B letter,
+0xBD number, 0xAB other). The per-byte class table for all 64 must be swept
+against the reference before implementing.
