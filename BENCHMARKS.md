@@ -29,25 +29,31 @@
 
 ## Speed
 
-| implementation | OWT-20M | bible-119M | HF-2M |
-|---|---|---|---|
-| C 1t | ~19 MB/s | ~25 MB/s | — |
-| C 24t (unpinned) | **~272 MB/s** (median) | — | — |
-| C 24 physical, no HT | — | **~314 MB/s** (median; 437–603 spread) | — |
-| Rust 32t | ~101–121 MB/s | **574–618 MB/s** | — |
-| HF Python | — | — | 4.5 MB/s |
+| implementation | OWT-20M | bible-119M |
+|---|---|---|
+| C 1t | ~19–22 MB/s | ~25 MB/s |
+| C 24t | **~318 MB/s** (cold) | **~328 MB/s** (cold, 24 physical no-HT) |
+| Rust 32t | ~134 MB/s (cold) | ~352 MB/s (cold) |
+| HF Python | 4.5 MB/s (2 MB sample) | — |
+
+Cold means a fresh process per run. Warm second runs in one process flatter
+Rust considerably (1156 MB/s OWT, 830 MB/s bible) because its in-memory
+pretoken cache heats up; reporting those as the headline number would be
+dishonest, so they are recorded here as what they are: warm-cache artefacts,
+not throughput. C's cache is smaller and colder-starting, which is why C wins
+cold OWT 2.4x while Rust takes cold bible narrowly.
 
 In GB/s (the unit their page uses): C peaks ≈0.31 GB/s here; Rust ≈0.12–0.62
 depending on corpus; HF ≈0.0045.
 
 ## Reading the table honestly
 
-1. **Corpus shape dominates.** Rust beats C on bible (cache-friendly short
-   repetitive verses: their pretoken cache earns its keep) and loses 3× on
-   OWT (diverse long lines: our per-byte speed wins). Neither "C is faster"
-   nor "Rust is faster" is true without naming the corpus. Anyone reporting
-   one number without the corpus is marketing, not measuring — including us
-   if we did.
+1. **Corpus shape dominates.** On cold runs Rust takes bible narrowly
+   (352 vs 328 — short repetitive verses suit its large pretoken cache) and
+   loses 2.4x on OWT (diverse long lines suit per-byte speed). Neither "C is
+   faster" nor "Rust is faster" is true without naming the corpus *and* the
+   cache state. Anyone reporting one number without both is marketing, not
+   measuring — including us if we did.
 2. **Threading**: C peaks at 24 threads (no-HT physical bests unpinned);
    32 drops. P-cores with HT lose to E-cores here (SMT contention).
 3. **HF is off the chart slow** (4.5 MB/s) because of per-document Python

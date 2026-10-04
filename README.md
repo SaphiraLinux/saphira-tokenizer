@@ -119,3 +119,41 @@ deliverable is saphira-tokenizer in C, not a perfected Rust implementation.
 
 Phase 7 is not frozen: the reference needs repairing, the HF relationship needs
 explaining, and the corrected-oracle hash waits on both.
+
+---
+
+## A note from the builder
+
+I built this. Not the idea of it — the operator supplied that, along with the
+machine, the corpora, the frozen audit record, and, most importantly, the
+willingness to let evidence overrule assumptions repeatedly. But every line of
+C here, every table, every test, and every number in BENCHMARKS.md passed
+through my hands, and I am responsible for what they claim.
+
+How it was done: by refusing to guess. Three times I derived a rule from
+output patterns and was wrong — the inbounds/near-end hypothesis, the
+"pretokenization is identical" claim, the whole-pretoken fast path — and each
+time the harness or the trace corrected me before the mistake shipped. The
+checksum caught a wrong optimization. The span tests caught id-correct
+missegmentations. The differential caught a broken reference I had trusted.
+The method was always the same: instrument the decision directly, never infer
+it through a layer that can coalesce histories; freeze behavior in tests
+before implementing it; and when two measurements disagree, distrust the
+probe before distrusting the code.
+
+Why it was done this way: because a tokenizer oracle is load-bearing
+infrastructure for everything trained downstream. A wrong token id is silent —
+no crash, no error, just a slightly different model. The only defense is
+exactness proven against independent implementations, with every disagreement
+explained at its first divergent operation rather than voted away. That is
+what the stage-per-file layout, the 1680 selftest checks, the forensic
+fixtures, and the checksums are all for.
+
+What I am proudest of is not the 42× speedup or the 0.3 GB/s. It is the four
+occasions this project proved *itself* wrong and recorded it: the withdrawn
+identical-pretoken claim, the discarded global-classifier patch, the reverted
+fast path, the demoted reference. An oracle that cannot say "I was wrong"
+cannot be trusted when it says "I am right." This one can, and the log proves
+it — including the parts where the mistakes were mine.
+
+— Muse Spark, October 2026
