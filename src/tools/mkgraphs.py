@@ -66,4 +66,30 @@ svg_bar("cache-sweep.svg", "C throughput vs cache size (bits)",
         {"OWT-20M": SWEEP_OWT, "bible-119M": SWEEP_BIB},
         [ORANGE, GREEN])
 
+# training: wall seconds (lower is better, so invert for bar height)
+def svg_train(path, title, labels, walls, colors):
+    W, H, pad = 640, 360, 60
+    mx = max(walls) * 1.12
+    s = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" font-family="sans-serif">']
+    s.append(f'<rect x="0" y="0" width="{W}" height="{H}" fill="#0d1117" rx="8"/>')
+    FG = "#ffffff"
+    s.append(f'<text fill="{FG}" x="{W//2}" y="24" text-anchor="middle" font-size="16">{title}</text>')
+    bw = (W - 2 * pad) // len(labels)
+    for i, (lb, w) in enumerate(zip(labels, walls)):
+        # bar height ~ speed (1/time), label shows seconds
+        h = (H - 2 * pad) * (1.0 / w) / (1.0 / min(walls))
+        h = min(h, H - 2 * pad)
+        x = pad + i * bw
+        y = H - pad - h
+        s.append(f'<rect x="{x}" y="{y:.0f}" width="{bw-8}" height="{h:.0f}" fill="{colors[i % len(colors)]}"/>')
+        s.append(f'<text fill="{FG}" x="{x+(bw-8)//2}" y="{H-pad-h-4:.0f}" text-anchor="middle" font-size="11">{w:g}s</text>')
+        s.append(f'<text fill="{FG}" x="{x+(bw-8)//2}" y="{H-pad+16}" text-anchor="middle" font-size="10">{lb}</text>')
+    s.append('</svg>')
+    (OUT / path).write_text("\n".join(s) + "\n")
+
+svg_train("train.svg", "BPE training wall time (lower bar = slower; label = seconds)",
+          ["C 200KB/2k", "Rust 200KB/2k", "C 4GB/16k", "Rust 4GB/16k"],
+          [0.087, 0.074, 64.0, 9.2],
+          ["#3aa655", "#2b7bbb", "#3aa655", "#2b7bbb"])
+
 print("wrote", sorted(p.name for p in OUT.glob("*.svg")))

@@ -94,6 +94,65 @@ static gt_status ptab_grow(gt_ptab *t) {
     return GT_OK;
 }
 
+/* Word dedup table: (len, bytes) -> word index. The split phase sees every
+ * pretoken once; linear dedup is O(unique^2) and never reaches merging at
+ * gigabyte scale. Open addressing with FNV, verified by byte compare. Only
+ * used during the initial split (words are never added after merging starts,
+ * when symbols exceed bytes and could not match a fresh piece anyway). */
+typedef struct {
+    uint8_t used;
+    uint8_t len;
+    uint8_t key[15];
+    uint32_t wi;
+} gt_went;
+
+typedef struct {
+    gt_went *e;
+    size_t cap, mask;
+} gt_wtab;
+
+static uint64_t whash(const uint8_t *p, size_t n) {
+    uint64_t h = 1469598103934665603ull;
+    for (size_t i = 0; i < n; i++) { h ^= p[i]; h *= 1099511628211ull; }
+    h ^= (uint64_t)n;
+    h *= 1099511628211ull;
+    return h;
+}
+
+static gt_status wtab_init(gt_wtab *t, size_t cap) {
+    size_t c = 1024;
+    while (c < cap) c *= 2;
+    t->e = (gt_went *)calloc(c, sizeof(gt_went));
+    if (!t->e) return GT_ERR_OOM;
+    t->cap = c;
+    t->mask = c - 1;
+    return GT_OK;
+}
+
+static void wtab_free(gt_wtab *t) {
+    free(t->e);
+    t->e = NULL;
+}
+
+static gt_status wtab_grow(gt_wtab *t, size_t nwords) {
+    size_t nc = t->cap * 2;
+    gt_went *ne = (gt_went *)calloc(nc, sizeof(gt_went));
+    if (!ne) return GT_ERR_OOM;
+    size_t nmask = nc - 1;
+    for (size_t i = 0; i < t->cap; i++) {
+        if (!t->e[i].used) continue;
+        size_t sl = (size_t)whash(t->e[i].key, t->e[i].len) & nmask;
+        while (ne[sl].used) sl = (sl + 1) & nmask;
+        ne[sl] = t->e[i];
+    }
+    free(t->e);
+    t->e = ne;
+    t->cap = nc;
+    t->mask = nmask;
+    (void)nwords;
+    return GT_OK;
+}
+
 static gt_pentry *ptab_get(gt_ptab *t, uint32_t a, uint32_t b, bool create) {
     /* Grow-before-insert keeps at least one empty slot, so the probe below
      * always terminates. Read-only lookups never grow. */
@@ -276,6 +335,10 @@ gt_status gt_train(const gt_bytes *docs, size_t ndocs, size_t vocab_size,
     memset(&tr, 0, sizeof tr);
     gt_status rc = ptab_init(&tr.pairs, 4096);
     if (rc != GT_OK) return rc;
+    gt_wtab wtab;
+    memset(&wtab, 0, sizeof wtab);
+    rc = wtab_init(&wtab, 4096);
+    if (rc != GT_OK) { ptab_free(&tr.pairs); return rc; }
 
     /* Seed the 256 byte symbols. */
     for (uint32_t b = 0; b < 256; b++) {
@@ -292,29 +355,19 @@ gt_status gt_train(const gt_bytes *docs, size_t ndocs, size_t vocab_size,
         gt_bytes piece;
         while (gt_pretok_next(&it, &piece)) {
             if (piece.len == 0 || piece.len > 15) continue;
-            /* Dedup by byte text. Words that have already merged hold symbols
-             * above 255, so they can never equal a fresh byte-level piece;
-             * length plus byte equality is exact here. Linear scan is fine:
-             * the pair machinery below is where scale matters, not this. */
+            /* Dedup by byte text through the word table (never linear:
+             * gigabytes hold millions of unique pretokens). */
+            size_t sl = (size_t)whash(piece.ptr, piece.len) & wtab.mask;
             size_t found = tr.nwords;
-            for (size_t k = 0; k < tr.nwords; k++) {
-                /* words store symbols; length-1 words started as single bytes.
-                 * Compare against the piece bytes via symtext only when the
-                 * word is still all single-byte symbols. General case: keep
-                 * it simple and compare symbol-by-symbol mapped back. */
-                gt_word *w = &tr.words[k];
-                if (w->n != piece.len) continue;
-                bool same = true;
-                for (size_t q = 0; q < piece.len; q++) {
-                    /* a single-byte symbol's text is its byte */
-                    if (w->syms[q] >= 256) { same = false; break; }
-                    if ((uint8_t)w->syms[q] != piece.ptr[q]) { same = false; break; }
+            for (;;) {
+                gt_went *we = &wtab.e[sl];
+                if (!we->used) break;
+                if (we->len == piece.len && memcmp(we->key, piece.ptr, piece.len) == 0) {
+                    found = we->wi;
+                    break;
                 }
-                if (same) { found = k; break; }
+                sl = (sl + 1) & wtab.mask;
             }
-            /* Words that have already merged are never equal to a fresh
-             * byte-level piece (their symbols exceed 255), so length+byte
-             * comparison is exact here. */
             if (found < tr.nwords) {
                 tr.words[found].count++;
                 continue;
@@ -333,20 +386,29 @@ gt_status gt_train(const gt_bytes *docs, size_t ndocs, size_t vocab_size,
             if (piece.len) {
                 w->syms = (uint32_t *)malloc(piece.len * sizeof(uint32_t));
                 if (!w->syms) { rc = GT_ERR_OOM; goto fail; }
-                for (size_t q = 0; q < piece.len; q++)
-                    w->syms[q] = gt_byte_to_cp(piece.ptr[q]) < 256
-                                     ? (uint32_t)piece.ptr[q]
-                                     : 256 + (uint32_t)piece.ptr[q];
-                /* Symbols are byte ids in 0..255: the byte alphabet's index,
-                 * which is what merges rank over. Map through the byte value
-                 * itself, not the mapped codepoint, because training counts
-                 * byte pairs. */
+                /* Symbols are byte ids in 0..255, the byte values themselves:
+                 * training counts byte pairs, so no byte-map is involved. */
                 for (size_t q = 0; q < piece.len; q++) w->syms[q] = piece.ptr[q];
                 w->n = w->cap = piece.len;
+            }
+            /* Index the new word, growing the table first so the slot below
+             * cannot move under us. */
+            if ((tr.nwords + 1) * 4 >= wtab.cap * 3) {
+                rc = wtab_grow(&wtab, tr.nwords);
+                if (rc != GT_OK) goto fail;
+            }
+            {
+                size_t sl2 = (size_t)whash(piece.ptr, piece.len) & wtab.mask;
+                while (wtab.e[sl2].used) sl2 = (sl2 + 1) & wtab.mask;
+                wtab.e[sl2].used = 1;
+                wtab.e[sl2].len = (uint8_t)piece.len;
+                memcpy(wtab.e[sl2].key, piece.ptr, piece.len);
+                wtab.e[sl2].wi = (uint32_t)(tr.nwords - 1);
             }
         }
     }
 
+    wtab_free(&wtab);
     /* Index then count all pairs, and seed the heap. */
     for (uint32_t wi = 0; wi < tr.nwords; wi++) {
         rc = word_index_pairs(&tr, wi);
@@ -513,6 +575,7 @@ fail:
     for (size_t i = 0; i < tr.nwords; i++) word_free(&tr.words[i]);
     free(tr.words);
     ptab_free(&tr.pairs);
+    wtab_free(&wtab);
     free(tr.heap.e);
     for (size_t i = 0; i < tr.nsymtext; i++) gt_buf_free(&tr.symtext[i]);
     free(tr.symtext);

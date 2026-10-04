@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" font-family="sans-serif">
+<rect x="0" y="0" width="640" height="360" fill="#0d1117" rx="8"/>
+<text fill="#ffffff" x="320" y="24" text-anchor="middle" font-size="16">BPE training wall time (lower bar = slower; label = seconds)</text>
+<rect x="60" y="96" width="122" height="204" fill="#3aa655"/>
+<text fill="#ffffff" x="121" y="92" text-anchor="middle" font-size="11">0.087s</text>
+<text fill="#ffffff" x="121" y="316" text-anchor="middle" font-size="10">C 200KB/2k</text>
+<rect x="190" y="60" width="122" height="240" fill="#2b7bbb"/>
+<text fill="#ffffff" x="251" y="56" text-anchor="middle" font-size="11">0.074s</text>
+<text fill="#ffffff" x="251" y="316" text-anchor="middle" font-size="10">Rust 200KB/2k</text>
+<rect x="320" y="300" width="122" height="0" fill="#3aa655"/>
+<text fill="#ffffff" x="381" y="296" text-anchor="middle" font-size="11">64s</text>
+<text fill="#ffffff" x="381" y="316" text-anchor="middle" font-size="10">C 4GB/16k</text>
+<rect x="450" y="298" width="122" height="2" fill="#2b7bbb"/>
+<text fill="#ffffff" x="511" y="294" text-anchor="middle" font-size="11">9.2s</text>
+<text fill="#ffffff" x="511" y="316" text-anchor="middle" font-size="10">Rust 4GB/16k</text>
+</svg>

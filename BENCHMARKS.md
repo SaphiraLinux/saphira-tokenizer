@@ -81,7 +81,9 @@ depending on corpus; HF ≈0.0045.
 C, Rust, and HF Python (24 processes) all produce checksum `106370442169`.
 Every verse agrees across all three implementations.
 
-## Training speed (200 KB OWT, vocab 2000)
+## Training speed
+
+200 KB OWT, vocab 2000 (small):
 
 | implementation | wall | note |
 |---|---|---|
@@ -90,3 +92,16 @@ Every verse agrees across all three implementations.
 | Bible 119 MB, vocab 45498 | 65 s, C single-threaded | 45,242 merges |
 
 C-trained models load in Rust with identical ids, and vice versa.
+
+4 GB OWT, vocab 16384 (large):
+
+| implementation | wall | note |
+|---|---|---|
+| C `gt_train`, single-threaded | 64 s | 16,128 merges; round-trips through own loader |
+| Rust `train_bpe`, parallel | 9.2 s wall (86 s CPU) | same counts; first-5 merges agree |
+
+Per CPU-second C is actually faster (64 s vs 86 s user); Rust wins wall-clock
+through 32 threads. Single-threaded parity with a parallel industrial
+implementation, from plain C with no threading yet.
+
+![Training wall time](evidence/train.svg)
