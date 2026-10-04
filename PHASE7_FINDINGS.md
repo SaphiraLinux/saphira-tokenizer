@@ -466,3 +466,27 @@ Arbitrary bytes, 4821-doc corpus:
 The 192 decompose exactly as predicted: the width defect `e749f8f` fixed
 (present in pristine, absent in our branch) plus the `80..BF` defect present
 in both. No surprises; the model of the defects is complete.
+
+---
+
+# Phase-7 freeze (C implementation frozen, evidence complete)
+
+`evidence/freeze_phase7.json`: C token ids over the 8684-doc adjudication
+corpus, SHA-256 `82d0a4cb27668851c5075114c3b74a3d33dffb803f5823e47ae1606b2b346e60`,
+plus the three adjudication buckets by input hex.
+
+- Agreed C==Rust==Ref: 8538 docs.
+- C==R!=F (36): reference differs; C+Rust agree.
+- C==F!=R (40): Rust wrong; C validated by the independent reference.
+  Includes the documented `80..BF` band cases.
+- R==F!=C (68): contract difference on malformed-lead fallback class, NOT a
+  C defect. C follows the approved frozen contract (a lead-shaped byte whose
+  continuations fail is 1 byte / Other). Rust and the reference follow
+  byte-alphabet fallback (the byte's mapped char supplies the class, which
+  may be Letter). All 68 involve `80..BF`-band bytes at span boundaries.
+  Changing C to match would violate the approved contract without
+  authorization, so C stands as written.
+
+Upstream Rust `bd9b9ae9` left frozen and documented as instructed. cl100k
+deferred. Trainer not parallelised. No LLM wiring. C code frozen at this
+commit; further changes require unfreezing with cause.
