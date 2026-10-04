@@ -20,9 +20,7 @@
  * A collision only evicts (never corrupts): memcmp verifies every hit, so a
  * hit returns bit-identical ids to a miss. Pure memoisation.
  */
-#define GT_PC_BITS 11
-#define GT_PC_SIZE (1u << GT_PC_BITS)
-#define GT_PC_MASK (GT_PC_SIZE - 1)
+#define GT_PC_DEFAULT_BITS 18 /* 256k slots; swept sweet spot, see BENCHMARKS.md */
 #define GT_PC_MAXKEY 15
 #define GT_PC_MAXIDS 7
 
@@ -44,6 +42,7 @@ struct gt_tokenizer {
     char pretok_kind[32];
     gt_encode_stats stats;
     gt_pcent *pcache;
+    uint32_t pcmask;
     /* Striped insert spinlocks: concurrent inserts to the same slot would
      * break the seqlock (two writers interleave 0->1->2->3->4 and land even
      * with torn data). One flag per 8 slots; only inserts take them, so the
@@ -392,10 +391,20 @@ gt_status gt_tokenizer_load(const char *path, gt_tokenizer **out) {
     if (rc != GT_OK) goto fail;
     rc = gt_special_new(added.tok, added.n, &t->special);
     if (rc != GT_OK) goto fail;
-    t->pcache = (gt_pcent *)calloc(GT_PC_SIZE, sizeof(gt_pcent));
-    if (!t->pcache) { rc = GT_ERR_OOM; goto fail; }
-    t->ilock = (char *)calloc(GT_PC_SIZE / 8, 1);
-    if (!t->ilock) { rc = GT_ERR_OOM; goto fail; }
+    {
+        /* Size from the environment so it can be swept without rebuilding;
+         * default 64k slots (~3MB). Clamped to a sane range. */
+        const char *e = getenv("GT_PCACHE_BITS");
+        unsigned bits = e ? (unsigned)atoi(e) : GT_PC_DEFAULT_BITS;
+        if (bits < 8) bits = 8;
+        if (bits > 22) bits = 22;
+        size_t nslots = (size_t)1 << bits;
+        t->pcache = (gt_pcent *)calloc(nslots, sizeof(gt_pcent));
+        if (!t->pcache) { rc = GT_ERR_OOM; goto fail; }
+        t->ilock = (char *)calloc(nslots / 8, 1);
+        if (!t->ilock) { rc = GT_ERR_OOM; goto fail; }
+        t->pcmask = (uint32_t)(nslots - 1);
+    }
 
     vkey_free(&vocab);
     str_free(&merges);
@@ -484,7 +493,7 @@ static gt_status encode_inner(const gt_tokenizer *t, gt_bytes input, gt_ids *out
         uint32_t ph = 0;
         if (piece.len >= 1 && piece.len <= GT_PC_MAXKEY) {
             ph = pchash(piece.ptr, piece.len);
-            slot = &t->pcache[ph & GT_PC_MASK];
+            slot = &t->pcache[ph & t->pcmask];
             /* Seqlock read: sample seq, copy bounded data, re-sample. A
              * change means a torn read -> miss (costs BPE, never wrong ids).
              * nids is clamped BEFORE use: a torn count must not size a copy. */
@@ -540,7 +549,7 @@ static gt_status encode_inner(const gt_tokenizer *t, gt_bytes input, gt_ids *out
         /* Fill the memo slot found above (same hash, no second probe walk).
          * Only when the result fits; anything else bypasses next time too. */
         if (slot && nsym >= 1 && nsym <= GT_PC_MAXIDS) {
-            char *lk = &t->ilock[(slot - t->pcache) / 8];
+            char *lk = &t->ilock[((size_t)(slot - t->pcache)) / 8];
             while (__atomic_test_and_set(lk, __ATOMIC_ACQUIRE)) { /* spin */ }
             __atomic_fetch_add(&slot->seq, 1u, __ATOMIC_RELAXED);
             slot->klen = (uint8_t)piece.len;
