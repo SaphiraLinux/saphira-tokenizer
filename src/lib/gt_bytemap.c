@@ -1,9 +1,17 @@
-/* gt_bytemap.c — the byte-level alphabet, built by the rule rather than a
- * literal table, so the rule is checkable against the specification.
+/* gt_bytemap.c — the byte-level alphabet.
+ *
+ * The mapping itself is a generated 256-entry table
+ * (`tools/gen_bytemap_table.py` -> `include/gt_byte_table.h`), because this
+ * function runs once per input byte and a 256-iteration count per call is not
+ * a cost an oracle has to pay. The table is derived from the three-run rule,
+ * and `test_bytemap` verifies every entry, so the rule and the table cannot
+ * drift apart silently.
  */
 #include "gt_bytemap.h"
 
 #include <stdbool.h>
+
+#include "gt_byte_table.h"
 
 /* Does this byte map to itself? Exactly the three runs in the specification. */
 static bool byte_is_itself(uint8_t b) {
@@ -12,15 +20,9 @@ static bool byte_is_itself(uint8_t b) {
 }
 
 uint32_t gt_byte_to_cp(uint8_t b) {
-    if (byte_is_itself(b)) return b;
-    /* Count the non-self bytes below `b`; that count is the offset into the
-     * 0x100.. region. Computing it rather than tabulating it keeps the
-     * specification and the code in one place. */
-    uint32_t n = 0;
-    for (uint32_t i = 0; i < b; i++) {
-        if (!byte_is_itself((uint8_t)i)) n++;
-    }
-    return 0x100u + n;
+    /* One load. `byte_is_itself` below remains the documented rule (used by
+     * `gt_cp_to_byte` and by the generator); this table is its memoisation. */
+    return GT_BYTE_TO_CP[b];
 }
 
 int gt_cp_to_byte(uint32_t cp) {

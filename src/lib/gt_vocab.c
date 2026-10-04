@@ -4,6 +4,7 @@
  * comparison total, so lookup never depends on insertion order and there is no
  * hash to collide.
  */
+#define _GNU_SOURCE /* for qsort_r */
 #include "gt_vocab.h"
 
 #include <stdlib.h>
@@ -23,27 +24,23 @@ struct gt_vocab {
     gt_token_id max_id;
 };
 
-static int entry_cmp(const gt_vocab *v, gt_vocab_entry a, gt_vocab_entry b) {
-    if (a.len != b.len) return a.len < b.len ? -1 : 1;
-    int c = memcmp(v->cps + a.off, v->cps + b.off, a.len * sizeof(uint16_t));
+/* Sort by (length, bytes, id) with qsort. The comparator needs the flat key
+ * storage, so it travels as qsort_r's context argument rather than a global.
+ * (An earlier insertion sort was O(n^2) on 50k entries and dominated load;
+ * that was a wrong algorithm, not a missed optimisation.) */
+static int entry_cmp_r(const void *pa, const void *pb, void *ctx) {
+    const gt_vocab *v = (const gt_vocab *)ctx;
+    const gt_vocab_entry *a = (const gt_vocab_entry *)pa;
+    const gt_vocab_entry *b = (const gt_vocab_entry *)pb;
+    if (a->len != b->len) return a->len < b->len ? -1 : 1;
+    int c = memcmp(v->cps + a->off, v->cps + b->off, a->len * sizeof(uint16_t));
     if (c != 0) return c;
-    if (a.id != b.id) return a.id < b.id ? -1 : 1;
+    if (a->id != b->id) return a->id < b->id ? -1 : 1;
     return 0;
 }
 
-/* Sort with qsort over a context-carrying comparator via a thread-local
- * pointer would be ugly; insertion into a simple array is fine at load time
- * (once per tokenizer) and keeps the comparator honest. */
 static void sort_entries(gt_vocab *v) {
-    for (size_t i = 1; i < v->n; i++) {
-        gt_vocab_entry key = v->e[i];
-        size_t j = i;
-        while (j > 0 && entry_cmp(v, v->e[j - 1], key) > 0) {
-            v->e[j] = v->e[j - 1];
-            j--;
-        }
-        v->e[j] = key;
-    }
+    qsort_r(v->e, v->n, sizeof(gt_vocab_entry), entry_cmp_r, v);
 }
 
 gt_status gt_vocab_new(const uint16_t *keys, const size_t *key_lens,

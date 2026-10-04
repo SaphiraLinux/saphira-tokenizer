@@ -16,11 +16,12 @@ SRC     = $(wildcard lib/*.c)
 OBJ     = $(patsubst lib/%.c,$(BUILD)/%.o,$(SRC))
 TOOL    = $(BUILD)/gt_dump_ids
 DEBUG   = $(BUILD)/gt_debug_stages
+BENCH   = $(BUILD)/gt_bench
 TEST    = $(BUILD)/gt_selftest
 
 .PHONY: all tool test check tables asan clean
 
-all: $(TOOL) $(TEST) $(DEBUG)
+all: $(TOOL) $(TEST) $(DEBUG) $(BENCH)
 
 $(BUILD):
 	@mkdir -p $(BUILD)
@@ -36,6 +37,9 @@ $(TEST): $(BUILD)/gt_selftest.o $(OBJ)
 
 $(DEBUG): $(BUILD)/gt_debug_stages.o $(OBJ)
 	$(CC) $(CFLAGS) $^ -o $@ $(LDLIBS)
+
+$(BENCH): $(BUILD)/gt_bench.o $(OBJ)
+	$(CC) $(CFLAGS) $^ -o $@ $(LDLIBS) -pthread
 
 $(BUILD)/%.o: tools/%.c | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -D_GNU_SOURCE -c $< -o $@
