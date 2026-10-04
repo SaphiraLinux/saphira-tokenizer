@@ -21,6 +21,13 @@ src/compile_commands.json
 __pycache__/
 *.pyc
 
+# Bible source text (261 MB, 1943 JSONs; extracted from the
+# bible-translations legacy-corpus-2025 branch, not committed)
+data/bible/
+
+data/bible_corpus.txt
+data/bible_text.txt
+
 # Editor / OS debris
 *~
 .DS_Store

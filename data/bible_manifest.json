@@ -1,0 +1,123 @@
+{
+ "bytes": 135006628,
+ "files": 29,
+ "per_translation": {
+  "AKJV": {
+   "bytes": 4717205,
+   "verses": 31102
+  },
+  "AMP": {
+   "bytes": 5278914,
+   "verses": 31103
+  },
+  "ASV": {
+   "bytes": 4686886,
+   "verses": 31102
+  },
+  "BRG": {
+   "bytes": 4683582,
+   "verses": 31102
+  },
+  "CSB": {
+   "bytes": 4433694,
+   "verses": 31103
+  },
+  "EHV": {
+   "bytes": 4691613,
+   "verses": 31143
+  },
+  "ESV": {
+   "bytes": 4550226,
+   "verses": 31103
+  },
+  "ESVUK": {
+   "bytes": 4614812,
+   "verses": 31103
+  },
+  "GNV": {
+   "bytes": 4650142,
+   "verses": 31090
+  },
+  "GW": {
+   "bytes": 4479629,
+   "verses": 31100
+  },
+  "ISV": {
+   "bytes": 4734391,
+   "verses": 31108
+  },
+  "JUB": {
+   "bytes": 4673722,
+   "verses": 31102
+  },
+  "KJ21": {
+   "bytes": 4754287,
+   "verses": 31070
+  },
+  "KJV": {
+   "bytes": 4678630,
+   "verses": 31102
+  },
+  "LEB": {
+   "bytes": 4704028,
+   "verses": 31098
+  },
+  "MEV": {
+   "bytes": 4593875,
+   "verses": 31102
+  },
+  "NASB": {
+   "bytes": 4710306,
+   "verses": 31103
+  },
+  "NASB1995": {
+   "bytes": 4783346,
+   "verses": 31103
+  },
+  "NET": {
+   "bytes": 4591480,
+   "verses": 31103
+  },
+  "NIV": {
+   "bytes": 4474643,
+   "verses": 31103
+  },
+  "NIVUK": {
+   "bytes": 4544072,
+   "verses": 31102
+  },
+  "NKJV": {
+   "bytes": 4639976,
+   "verses": 31102
+  },
+  "NLT": {
+   "bytes": 4650123,
+   "verses": 31080
+  },
+  "NLV": {
+   "bytes": 4620280,
+   "verses": 31102
+  },
+  "NOG": {
+   "bytes": 4573684,
+   "verses": 31099
+  },
+  "NRSV": {
+   "bytes": 4559756,
+   "verses": 31102
+  },
+  "NRSVUE": {
+   "bytes": 4621960,
+   "verses": 31102
+  },
+  "WEB": {
+   "bytes": 4603708,
+   "verses": 31103
+  },
+  "YLT": {
+   "bytes": 4707658,
+   "verses": 31102
+  }
+ },
+ "verses": 901939
+}
