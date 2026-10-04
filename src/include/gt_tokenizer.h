@@ -55,4 +55,9 @@ gt_status gt_tokenizer_encode_mt(const gt_tokenizer *t, gt_bytes input, gt_ids *
 
 void gt_tokenizer_encode_stats(const gt_tokenizer *t, gt_encode_stats *out);
 
+/* Stage accessors for the debugger and selftest agreement checks, so they
+ * exercise the tokenizer's own tables instead of rebuilding them. */
+const gt_bpe *gt_debug_bpe(const gt_tokenizer *t);
+const gt_vocab *gt_debug_vocab(const gt_tokenizer *t);
+
 #endif /* GT_TOKENIZER_H */

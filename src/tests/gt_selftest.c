@@ -103,7 +103,7 @@ static void test_bytemap(void) {
     unsigned char seen[512];
     memset(seen, 0, sizeof seen);
     for (int b = 0; b < 256; b++) {
-        uint16_t cp = gt_byte_to_cp((uint8_t)b);
+        uint32_t cp = gt_byte_to_cp((uint8_t)b);
         ok(cp < 512, "mapped cp in range");
         seen[cp]++;
     }
@@ -192,6 +192,10 @@ static void test_pretok(void) {
      * optional space attaches and the letter run continues through it. There
      * is no "invalid byte" class on the bytes path. */
     ok(n == 2, "byte 0xFF is a letter: space attaches, run continues");
+    ok(n == 2 && got[0].len == 1 && got[0].ptr[0] == 'a' &&
+       got[1].len == 3 && got[1].ptr[0] == ' ' &&
+       got[1].ptr[1] == 0xFF && got[1].ptr[2] == 'b',
+       "spans are [a] and [ space FF b ]");
 }
 
 

@@ -1,11 +1,13 @@
 /* gt_bench.c — throughput benchmark, not a correctness tool.
  *
- * Each worker thread owns a private tokenizer (the library stays
- * single-threaded and simple; documents are independent so sharing nothing
- * is the correct parallel structure). Reports input MB/s and a checksum over
- * all ids so a fast-but-wrong build cannot hide.
+ * All workers share one read-only tokenizer via gt_tokenizer_encode_mt (the
+ * library stays single-threaded and simple; documents are independent so
+ * sharing read-only tables is the correct parallel structure). Reports input
+ * MB/s and a checksum over all ids so a fast-but-wrong build cannot hide.
  */
+#ifndef _GNU_SOURCE
 #define _GNU_SOURCE
+#endif
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -50,7 +52,7 @@ static void *worker(void *arg) {
 static double now(void) {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
-    return ts.tv_sec + ts.tv_nsec * 1e-9;
+    return (double)ts.tv_sec + (double)ts.tv_nsec * 1e-9;
 }
 
 int main(int argc, char **argv) {
@@ -85,7 +87,7 @@ int main(int argc, char **argv) {
     }
     size_t nbytes = 0;
     for (size_t i = 0; i < nd; i++) nbytes += lens[i];
-    printf("docs=%zu inputMB=%.2f threads=%d\n", nd, nbytes / 1e6, nthreads);
+    printf("docs=%zu inputMB=%.2f threads=%d\n", nd, (double)nbytes / 1e6, nthreads);
 
     worker_t *ws = calloc((size_t)nthreads, sizeof(*ws));
     pthread_t *ths = malloc((size_t)nthreads * sizeof(*ths));
@@ -117,7 +119,7 @@ int main(int argc, char **argv) {
     gt_tokenizer_free(shared);
     double dt = now() - t0;
     printf("rc=%d tokens=%zu checksum=%llu time=%.2fs -> %.2f MB/s input\n",
-           rc, ntok, (unsigned long long)sum, dt, nbytes / 1e6 / dt);
+           rc, ntok, (unsigned long long)sum, dt, (double)nbytes / 1e6 / dt);
     free(ws);
     free(ths);
     free(docs);

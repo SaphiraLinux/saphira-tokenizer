@@ -284,9 +284,9 @@ gt_status gt_tokenizer_load(const char *path, gt_tokenizer **out) {
     gt_json j;
     gt_json_init(&j, (const char *)(file.data ? (const char *)file.data : ""), file.len);
 
-    vkey_tab vocab = {NULL, NULL, NULL, 0, 0};
-    str_tab merges = {NULL, 0, 0};
-    add_tab added = {NULL, 0, 0};
+    vkey_tab vocab = {0};
+    str_tab merges = {0};
+    add_tab added = {0};
     bool saw_model = false;
 
     if (!gt_eat(&j, '{')) { rc = GT_ERR_BAD_FORMAT; goto fail; }

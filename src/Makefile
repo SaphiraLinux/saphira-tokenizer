@@ -41,6 +41,20 @@ $(DEBUG): $(BUILD)/gt_debug_stages.o $(OBJ)
 $(BENCH): $(BUILD)/gt_bench.o $(OBJ)
 	$(CC) $(CFLAGS) $^ -o $@ $(LDLIBS) -pthread
 
+EXAMPLES = $(BUILD)/encode_demo $(BUILD)/mt_demo
+
+.PHONY: examples
+examples: $(EXAMPLES)
+
+$(BUILD)/encode_demo: $(BUILD)/encode_demo.o $(OBJ)
+	$(CC) $(CFLAGS) $^ -o $@ $(LDLIBS)
+
+$(BUILD)/mt_demo: $(BUILD)/mt_demo.o $(OBJ)
+	$(CC) $(CFLAGS) $^ -o $@ $(LDLIBS) -pthread
+
+$(BUILD)/%.o: examples/%.c | $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+
 $(BUILD)/%.o: tools/%.c | $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -D_GNU_SOURCE -c $< -o $@
 

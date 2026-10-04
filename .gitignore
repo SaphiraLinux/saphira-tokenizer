@@ -2,11 +2,26 @@
 # upstream/main fac0114). Kept on disk for provenance; never committed.
 /gigatoken/
 
-# Build artifacts
-/src/build/
-/src/build-asan/
+# Build artifacts (all build dirs, binaries, objects, profiles)
+src/build/
+src/build-asan/
+src/build-opt/
+src/build-*/
 *.o
+*.a
+*.so
+gmon.out
+gprof.out
+
+# Generated compile database (stale unless regenerated; use bear -- make)
+/compile_commands.json
+src/compile_commands.json
 
 # Python bytecode
 __pycache__/
 *.pyc
+
+# Editor / OS debris
+*~
+.DS_Store
+.vscode/
