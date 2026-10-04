@@ -188,7 +188,10 @@ static void test_pretok(void) {
         if (n < 64) { got[n].ptr = p.ptr; got[n].len = p.len; }
         n++;
     }
-    ok(n == 3, "invalid byte after space: space attaches to the other-run");
+    /* 0xFF is U+00FF 'y-diaeresis', a LETTER in the byte alphabet, so the
+     * optional space attaches and the letter run continues through it. There
+     * is no "invalid byte" class on the bytes path. */
+    ok(n == 2, "byte 0xFF is a letter: space attaches, run continues");
 }
 
 /* ---- stage: bpe ---- */

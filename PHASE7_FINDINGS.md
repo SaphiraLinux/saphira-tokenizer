@@ -393,3 +393,45 @@ lead-width bug; it is not sufficient for arbitrary-byte parity.
 
 Next: fix the C's byte-map/class model, then localise the Rust case-1 boundary
 defect, then re-run all four implementations before any hash is frozen.
+
+---
+
+# C migration: contract implemented, independent validation gate NOT met
+
+`src/tools/gen_byteclass_table.py` generates `include/gt_byte_class.h` from the
+single auditable derivation (byte -> GPT-2 byte-alphabet codepoint -> Unicode
+category). No hand-maintained 256-entry table. ASCII is deliberately excluded:
+0x20 is whitespace as a BYTE even though its byte-alphabet symbol U+0120 is a
+letter.
+
+`gt_pretok.c` now implements the frozen scanner contract (00..7F ASCII;
+80..BF never a lead, width 1, byte-alphabet class; C0..F4 structural 2/3/4 with
+failed continuation -> 1 byte / Other; F5..FF width 1).
+
+State: selftest 337/337. Differential vs corrected Rust: **54/4821**.
+
+## Residual attribution: consistent with the upstream defect, not proven
+
+All 54 involve the high-byte region; **0 are pure ASCII**, so the ASCII and
+whitespace paths are intact. But every one of the 54 also contains a
+lead-shaped byte, so this test cannot isolate 80..BF as the sole cause. The
+attribution to the documented upstream `80..BF` defect is PLAUSIBLE, NOT
+ESTABLISHED.
+
+## Gate status: NOT met
+
+Required next, in order:
+1. Repair the experimental Python reference's domain semantics (it regexes the
+   byte-mapped string, where 0x20 has become U+0120 and is therefore a letter --
+   it mis-classifies whitespace today). Then adjudicate C against it and
+   against HF `tokenizers` on the explicitly byte-mapped domain.
+2. Only an authority that is correct on 80..BF can validate C here. Corrected
+   Rust currently is not: `e749f8f` still lets 80..BF reach the width-3 arm,
+   which the sweep proved makes all 64 bytes able to consume 2-3 bytes. That is
+   an upstream defect, recorded with reproducers `89 88 81` -> U+9201 and
+   `BD 9B 9A` -> U+D6DA. Fixing it is optional for C's sake and must not become
+   the critical path.
+3. Re-verify `c8fa1aba...`, ASan/UBSan, and the exhaustive scanner properties
+   (all 64 bytes of 80..BF width==1 under every bait) once the table is in.
+
+Nothing frozen.

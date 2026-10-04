@@ -9,6 +9,10 @@
 
 #include <string.h>
 
+#include "gt_byte_class.h"
+#include "gt_bytemap.h"
+#include "gt_unicode.h"
+
 void gt_pretok_iter_init(gt_pretok_iter *it, gt_bytes input) {
     it->base = input.ptr;
     it->len = input.len;
@@ -17,13 +21,73 @@ void gt_pretok_iter_init(gt_pretok_iter *it, gt_bytes input) {
 
 /* Peek the class of the character starting at `p`, without consuming.
  * `*adv` receives how many bytes it occupies (>=1, always). */
+/* The scanner. One symbol at a time, from the frozen contract:
+ *
+ *   00..7F  ordinary byte, existing ASCII handling
+ *   80..BF  NEVER a lead. Consume exactly 1. The class is the Unicode
+ *           category of that byte's GPT-2 byte-alphabet symbol -- 0x89 is
+ *           U+012B (letter), 0xBD is U+00BD (number), 0xAB is U+00AB (other).
+ *           These bytes only LOOK like continuations to a UTF-8 parser; in
+ *           this alphabet they are ordinary characters. No following byte
+ *           sequence may ever make this consume more than one byte.
+ *   C0..F4  lead-shaped. Propose 2 (C0..DF), 3 (E0..EF) or 4 (F0..F4) bytes.
+ *           If the following bytes really are continuations, assemble and
+ *           classify the ASSEMBLED value -- even when it is not a valid
+ *           scalar, since an overlong '/' or a surrogate is still assembled
+ *           and classified here. If the structure fails, consume 1 as Other.
+ *   F5..FF  not lead-shaped. Consume 1, byte-alphabet class.
+ */
 static gt_cp_class peek_class(const uint8_t *b, size_t len, size_t p,
                               size_t *adv) {
-    size_t q = p;
-    uint32_t cp;
-    gt_cp_class c = gt_decode_next(b, len, &q, &cp);
-    *adv = q - p;
-    return c;
+    uint8_t byte = b[p];
+    *adv = 1;
+
+    /* ASCII. Whitespace is a property of the BYTE: 0x20's byte-alphabet symbol
+     * is U+0120, a letter, so classifying the mapped codepoint here would turn
+     * every space into a letter and glue "a b" into one run. */
+    if (byte < 0x80) {
+        if (byte == 0x20 || (byte >= 0x09 && byte <= 0x0D)) return GT_CLS_SPACE;
+        uint32_t cp = byte;
+        if (gt_cp_is_letter(cp)) return GT_CLS_LETTER;
+        if (gt_cp_is_number(cp)) return GT_CLS_NUMBER;
+        return GT_CLS_OTHER;
+    }
+
+    /* Non-lead-shaped high bytes: never assemble. */
+    if (byte < 0xC0 || byte >= 0xF5) {
+        switch (GT_BYTE_CLASS[byte - 0x80]) {
+        case 'L': return GT_CLS_LETTER;
+        case 'N': return GT_CLS_NUMBER;
+        case 'S': return GT_CLS_SPACE;
+        default:  return GT_CLS_OTHER;
+        }
+    }
+
+    /* Lead-shaped: only assemble when the structure is really there. */
+    size_t w = (byte < 0xE0) ? 2 : ((byte < 0xF0) ? 3 : 4);
+    if (p + w <= len) {
+        size_t k = 1;
+        for (; k < w; k++) {
+            if ((b[p + k] & 0xC0) != 0x80) break;
+        }
+        if (k == w) {
+            uint32_t cp;
+            if (w == 2) cp = (uint32_t)(((b[p] & 0x1F) << 6) | (b[p + 1] & 0x3F));
+            else if (w == 3)
+                cp = (uint32_t)(((b[p] & 0x0F) << 12) | ((b[p + 1] & 0x3F) << 6) |
+                                (b[p + 2] & 0x3F));
+            else
+                cp = (uint32_t)(((b[p] & 0x07) << 18) | ((b[p + 1] & 0x3F) << 12) |
+                                ((b[p + 2] & 0x3F) << 6) | (b[p + 3] & 0x3F));
+            if (cp > 0x10FFFF) cp = 0x10FFFF; /* clamp, as the reference does */
+            if (gt_cp_is_letter(cp)) { *adv = w; return GT_CLS_LETTER; }
+            if (gt_cp_is_number(cp)) { *adv = w; return GT_CLS_NUMBER; }
+            if (gt_cp_is_space(cp))   { *adv = w; return GT_CLS_SPACE; }
+            *adv = w; return GT_CLS_OTHER;
+        }
+    }
+    /* Malformed or truncated lead: one byte, Other. */
+    return GT_CLS_OTHER;
 }
 
 /* An ASCII literal at the cursor: "'s", "'t", "'re", "'ve", "'m", "'ll", "'d".
