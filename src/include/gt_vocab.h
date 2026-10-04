@@ -28,5 +28,7 @@ gt_token_id gt_vocab_max_id(const gt_vocab *v);
  * skipping. */
 #define GT_ID_NONE ((gt_token_id)0xFFFFFFFFu)
 gt_token_id gt_vocab_lookup(const gt_vocab *v, const uint16_t *cps, size_t n);
+/* Binary-search reference for tests proving the hash agrees. */
+gt_token_id gt_vocab_lookup_binary_ref(const gt_vocab *v, const uint16_t *cps, size_t n);
 
 #endif /* GT_VOCAB_H */

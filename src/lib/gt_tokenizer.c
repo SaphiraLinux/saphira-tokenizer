@@ -413,9 +413,12 @@ static void scratch_free(gt_scratch *s) {
     s->cap = s->sym_cap = 0;
 }
 
-gt_status gt_tokenizer_encode(gt_tokenizer *t, gt_bytes input, gt_ids *out) {
+static gt_status encode_inner(const gt_tokenizer *t, gt_bytes input, gt_ids *out,
+                            gt_encode_stats *st) {
     if (!t || !out) return GT_ERR_NULL_ARG;
-    memset(&t->stats, 0, sizeof t->stats);
+    gt_encode_stats local;
+    if (!st) st = &local;
+    memset(st, 0, sizeof *st);
 
     gt_status rc = gt_ids_reserve(out, input.len ? input.len : 1);
     if (rc != GT_OK) return rc;
@@ -426,7 +429,7 @@ gt_status gt_tokenizer_encode(gt_tokenizer *t, gt_bytes input, gt_ids *out) {
     gt_scratch sc = {NULL, 0, NULL, 0};
     gt_bytes piece;
     while (gt_pretok_next(&it, &piece)) {
-        t->stats.n_pretokens++;
+        st->n_pretokens++;
 
         /* Stage: byte map. Every byte of the pretoken becomes one mapped
          * codepoint. */
@@ -436,28 +439,42 @@ gt_status gt_tokenizer_encode(gt_tokenizer *t, gt_bytes input, gt_ids *out) {
         for (size_t i = 0; i < piece.len; i++) {
             sc.cps[ncps++] = (uint16_t)gt_byte_to_cp(piece.ptr[i]);
         }
-        t->stats.n_mapped_codepoints += ncps;
+        st->n_mapped_codepoints += ncps;
 
         /* Stage: BPE. */
         size_t nsym = gt_bpe_merge(t->bpe, sc.cps, ncps, sc.syms, sc.sym_cap);
-        t->stats.n_merged_symbols += nsym;
+        st->n_merged_symbols += nsym;
 
         /* Stage: vocabulary. */
         for (size_t i = 0; i < nsym; i++) {
             gt_token_id id = gt_vocab_lookup(t->vocab, sc.cps + sc.syms[i].off,
                                              sc.syms[i].len);
             if (id == GT_ID_NONE) {
-                t->stats.n_vocab_misses++;
+                st->n_vocab_misses++;
                 scratch_free(&sc);
                 return GT_ERR_STAGE_VOCAB;
             }
-            t->stats.n_vocab_hits++;
+            st->n_vocab_hits++;
             rc = gt_ids_push(out, id);
             if (rc != GT_OK) { scratch_free(&sc); return rc; }
         }
     }
     scratch_free(&sc);
     return GT_OK;
+}
+
+gt_status gt_tokenizer_encode(gt_tokenizer *t, gt_bytes input, gt_ids *out) {
+    if (!t) return GT_ERR_NULL_ARG;
+    gt_status rc = encode_inner(t, input, out, &t->stats);
+    return rc;
+}
+
+/* Thread-safe: shares the read-only tables, writes stats to the caller.
+ * Concurrent calls on the same tokenizer are safe; concurrent calls sharing
+ * an `out` or `st` are not (same rule as any reentrant C function). */
+gt_status gt_tokenizer_encode_mt(const gt_tokenizer *t, gt_bytes input, gt_ids *out,
+                                 gt_encode_stats *st) {
+    return encode_inner(t, input, out, st);
 }
 
 /* Accessors for the stage debugger, so it exercises the tokenizer's own tables

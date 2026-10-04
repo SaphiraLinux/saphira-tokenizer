@@ -25,15 +25,33 @@ static bool in_ranges(const gt_cp_range *rs, size_t n, uint32_t cp) {
     return false;
 }
 
+/* ASCII class table: bit 0 = letter, bit 1 = number, bit 2 = space.
+ * Covers 0x00..0x7F so the hot ASCII path is one load, not a binary search.
+ * Generated from the same UCD ranges (verified in selftest); this is a
+ * memoisation of the tables below, not a second source of truth. */
+static const uint8_t GT_ASCII_CLS[128] = {
+    0,0,0,0,0,0,0,0,0,4,4,4,4,4,0,0, /* 00..0F: only 09..0D are space */
+    0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, /* 10..1F: other */
+    4,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, /* 20..2F: space is 0x20 */
+    2,2,2,2,2,2,2,2,2,2,0,0,0,0,0,0, /* 30..3F: 0-9 number(2) */
+    0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1, /* 40..4F: A-O letter(1) */
+    1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0, /* 50..5F: P-Z letter */
+    0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1, /* 60..6F: a-o letter */
+    1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0, /* 70..7F: p-z letter */
+};
+
 bool gt_cp_is_letter(uint32_t cp) {
+    if (cp < 0x80) return (GT_ASCII_CLS[cp] & 1) != 0;
     return in_ranges(gt_cp_ranges_letter, gt_cp_ranges_letter_count, cp);
 }
 
 bool gt_cp_is_number(uint32_t cp) {
+    if (cp < 0x80) return (GT_ASCII_CLS[cp] & 2) != 0;
     return in_ranges(gt_cp_ranges_number, gt_cp_ranges_number_count, cp);
 }
 
 bool gt_cp_is_space(uint32_t cp) {
+    if (cp < 0x80) return (GT_ASCII_CLS[cp] & 4) != 0;
     return in_ranges(gt_cp_ranges_space, gt_cp_ranges_space_count, cp);
 }
 

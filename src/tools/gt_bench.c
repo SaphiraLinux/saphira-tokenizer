@@ -33,7 +33,8 @@ static void *worker(void *arg) {
     for (size_t i = w->start; i < w->end; i++) {
         gt_ids_clear(&ids);
         gt_bytes in = {w->docs[i], w->lens[i]};
-        if (gt_tokenizer_encode(w->tk, in, &ids) != GT_OK) {
+        gt_encode_stats st;
+        if (gt_tokenizer_encode_mt(w->tk, in, &ids, &st) != GT_OK) {
             w->rc = 1;
             break;
         }
@@ -89,17 +90,13 @@ int main(int argc, char **argv) {
     worker_t *ws = calloc((size_t)nthreads, sizeof(*ws));
     pthread_t *ths = malloc((size_t)nthreads * sizeof(*ths));
     /* One tokenizer per thread; load once (fast since the vocab sort fix). */
-    gt_tokenizer *first = NULL;
-    if (gt_tokenizer_load(tok_path, &first) != GT_OK) {
+    gt_tokenizer *shared = NULL;
+    if (gt_tokenizer_load(tok_path, &shared) != GT_OK) {
         fprintf(stderr, "cannot load tokenizer\n");
         return 1;
     }
-    gt_tokenizer_free(first);
     for (int t = 0; t < nthreads; t++) {
-        if (gt_tokenizer_load(tok_path, &ws[t].tk) != GT_OK) {
-            fprintf(stderr, "thread %d: cannot load tokenizer\n", t);
-            return 1;
-        }
+        ws[t].tk = shared;
         ws[t].docs = docs;
         ws[t].lens = lens;
         ws[t].start = nd * (size_t)t / (size_t)nthreads;
@@ -116,8 +113,8 @@ int main(int argc, char **argv) {
         rc |= ws[t].rc;
         sum += ws[t].sum;
         ntok += ws[t].ntok;
-        gt_tokenizer_free(ws[t].tk);
     }
+    gt_tokenizer_free(shared);
     double dt = now() - t0;
     printf("rc=%d tokens=%zu checksum=%llu time=%.2fs -> %.2f MB/s input\n",
            rc, ntok, (unsigned long long)sum, dt, nbytes / 1e6 / dt);

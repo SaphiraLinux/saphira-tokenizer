@@ -32,6 +32,10 @@ size_t gt_bpe_rule_count(const gt_bpe *b);
 
 /* Rank of the pair (left, right), or -1 if the pair is not a rule. The
  * concatenated key is formed without allocating. */
+/* Hash-table rank query that bypasses the direct single-byte table, for
+ * tests that prove the two paths agree. Not for production use. */
+int32_t gt_bpe_rank_hashonly(const gt_bpe *b, const uint16_t *cps, gt_symbol left,
+                             gt_symbol right);
 int32_t gt_bpe_rank(const gt_bpe *b, const uint16_t *cps, gt_symbol left,
                     gt_symbol right);
 

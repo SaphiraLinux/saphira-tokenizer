@@ -12,6 +12,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "gt_simd.h"
+
 #include "gt_bytemap.h"
 #include "gt_unicode.h"
 
@@ -30,6 +32,12 @@ struct gt_bpe {
     /* open-addressed index; slot holds rule index + 1, 0 means empty */
     uint32_t *slots;
     size_t mask;
+    /* Direct table for single-byte pairs: direct[a*256+b] is the lowest rule
+     * index merging those two codepoints, or -1. The first BPE round always
+     * sees single-codepoint symbols, so this answers the hottest queries with
+     * two loads and no hash, no probe, no memcmp. Same ranks as the hash
+     * table by construction (verified in selftest). */
+    int32_t *direct;
 };
 
 /* FNV-1a over the concatenated codepoints. Any hash works; this one is short
@@ -140,6 +148,12 @@ gt_status gt_bpe_new(const char *const *rules, size_t count, gt_bpe **out) {
         return GT_ERR_OOM;
     }
     b->mask = cap - 1;
+    b->direct = (int32_t *)malloc(256u * 256u * sizeof(int32_t));
+    if (!b->direct) {
+        gt_bpe_free(b);
+        return GT_ERR_OOM;
+    }
+    for (uint32_t i = 0; i < 256u * 256u; i++) b->direct[i] = -1;
     for (size_t i = 0; i < count; i++) {
         gt_symbol a = {b->rules[i].key_off, b->rules[i].left_len};
         gt_symbol c = {b->rules[i].key_off + b->rules[i].left_len,
@@ -148,6 +162,14 @@ gt_status gt_bpe_new(const char *const *rules, size_t count, gt_bpe **out) {
         size_t s = (size_t)h & b->mask;
         while (b->slots[s] != 0) s = (s + 1) & b->mask;
         b->slots[s] = (uint32_t)(i + 1);
+        if (b->rules[i].key_len == 2 && b->rules[i].left_len == 1) {
+            uint16_t x = b->cps[b->rules[i].key_off];
+            uint16_t y = b->cps[b->rules[i].key_off + 1];
+            if (x < 256 && y < 256) {
+                uint32_t di = (uint32_t)x * 256u + (uint32_t)y;
+                if (b->direct[di] < 0 || (int32_t)i < b->direct[di]) b->direct[di] = (int32_t)i;
+            }
+        }
     }
     *out = b;
     return GT_OK;
@@ -158,6 +180,7 @@ void gt_bpe_free(gt_bpe *b) {
     free(b->rules);
     free(b->cps);
     free(b->slots);
+    free(b->direct);
     free(b);
 }
 
@@ -166,6 +189,16 @@ size_t gt_bpe_rule_count(const gt_bpe *b) { return b ? b->n_rules : 0; }
 int32_t gt_bpe_rank(const gt_bpe *b, const uint16_t *cps, gt_symbol left,
                     gt_symbol right) {
     if (!b || !cps) return -1;
+    if (left.len == 1 && right.len == 1) {
+        uint16_t x = cps[left.off], y = cps[right.off];
+        if (x < 256 && y < 256) return b->direct[(uint32_t)x * 256u + (uint32_t)y];
+    }
+    return gt_bpe_rank_hashonly(b, cps, left, right);
+}
+
+int32_t gt_bpe_rank_hashonly(const gt_bpe *b, const uint16_t *cps, gt_symbol left,
+                             gt_symbol right) {
+    if (!b || !cps) return -1;
     uint64_t h = hash_pair(cps, left, right);
     size_t s = (size_t)h & b->mask;
     while (b->slots[s] != 0) {
@@ -173,10 +206,9 @@ int32_t gt_bpe_rank(const gt_bpe *b, const uint16_t *cps, gt_symbol left,
         const gt_rule *r = &b->rules[ri];
         if (r->left_len == left.len &&
             r->key_len == left.len + right.len &&
-            memcmp(b->cps + r->key_off, cps + left.off,
-                   left.len * sizeof(uint16_t)) == 0 &&
-            memcmp(b->cps + r->key_off + r->left_len, cps + right.off,
-                   right.len * sizeof(uint16_t)) == 0) {
+            gt_u16_eq(b->cps + r->key_off, cps + left.off, left.len) == 0 &&
+            gt_u16_eq(b->cps + r->key_off + r->left_len, cps + right.off,
+                      right.len) == 0) {
             return (int32_t)ri;
         }
         s = (s + 1) & b->mask;
@@ -186,7 +218,7 @@ int32_t gt_bpe_rank(const gt_bpe *b, const uint16_t *cps, gt_symbol left,
 
 static bool sym_eq(const uint16_t *cps, gt_symbol a, gt_symbol b) {
     return a.len == b.len &&
-           (a.len == 0 || memcmp(cps + a.off, cps + b.off, a.len * sizeof(uint16_t)) == 0);
+           (a.len == 0 || gt_u16_eq(cps + a.off, cps + b.off, a.len) == 0);
 }
 
 size_t gt_bpe_merge(const gt_bpe *b, const uint16_t *cps, size_t ncps,

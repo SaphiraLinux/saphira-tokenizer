@@ -48,6 +48,11 @@ typedef struct {
     size_t n_vocab_misses;
 } gt_encode_stats;
 
+/* Thread-safe encode sharing read-only tables; stats go to the caller.
+ * Concurrent calls on one tokenizer are safe; sharing `out`/`st` is not. */
+gt_status gt_tokenizer_encode_mt(const gt_tokenizer *t, gt_bytes input, gt_ids *out,
+                                 gt_encode_stats *st);
+
 void gt_tokenizer_encode_stats(const gt_tokenizer *t, gt_encode_stats *out);
 
 #endif /* GT_TOKENIZER_H */

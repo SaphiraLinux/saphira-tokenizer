@@ -332,6 +332,25 @@ static void check_rust_vectors(const char *tok_path) {
     }
     test_forensic_minimals(tk);
 
+    /* Direct single-byte table must agree with the hash table on all 65k pairs. */
+    {
+        extern const gt_bpe *gt_debug_bpe(const gt_tokenizer *tk);
+        const gt_bpe *bpe = gt_debug_bpe(tk);
+        uint16_t pair[2];
+        int bad = 0;
+        for (int x = 0; x < 256 && !bad; x++) {
+            for (int y = 0; y < 256; y++) {
+                pair[0] = (uint16_t)x; pair[1] = (uint16_t)y;
+                gt_symbol L = {0, 1}, R = {1, 1};
+                int32_t d = gt_bpe_rank(bpe, pair, L, R);
+                int32_t hh = gt_bpe_rank_hashonly(bpe, pair, L, R);
+                if (d != hh) { bad = 1; break; }
+            }
+        }
+        checks++;
+        if (bad) { failures++; printf("FAIL direct/hash rank agreement\n"); }
+    }
+
     printf("loaded: pretokenizer=%s vocab=%zu max_id=%u merges=%zu added=%zu\n",
            gt_tokenizer_pretokenizer(tk), gt_tokenizer_vocab_size(tk),
            gt_tokenizer_max_id(tk), gt_tokenizer_merge_rules(tk),
@@ -396,6 +415,18 @@ int main(int argc, char **argv) {
     test_pretok();
     test_bpe();
     test_scanner_contract();
+    /* The ASCII fast-path table must agree with the UCD range tables. */
+    for (int c = 0; c < 0x80; c++) {
+        char what[64];
+        snprintf(what, sizeof what, "ascii table agrees for %02X", c);
+        /* recompute from first principles, not from either implementation */
+        bool L = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');
+        bool N = (c >= '0' && c <= '9');
+        bool S = (c == 0x20) || (c >= 0x09 && c <= 0x0D);
+        ok(gt_cp_is_letter((uint32_t)c) == L &&
+           gt_cp_is_number((uint32_t)c) == N &&
+           gt_cp_is_space((uint32_t)c) == S, what);
+    }
     if (argc > 1) check_rust_vectors(argv[1]);
     else printf("(no tokenizer path given; skipped contract vectors)\n");
 
