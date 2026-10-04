@@ -106,7 +106,7 @@ Speed (ramdisk, cold runs, checksums identical — see BENCHMARKS.md):
 |---|---|---|
 | C `-O2 -mavx2 -flto`, 256k cache | **880 MB/s** | **1701 MB/s (1.70 GB/s)** |
 | Rust release, 32t | 122 MB/s | 714 MB/s |
-| HF Python | 4.5 MB/s | — |
+| HF Python | 4.5 MB/s (2 MB sample) | ~46 MB/s (24 procs, full set) |
 
 ## Graphs
 
