@@ -87,6 +87,11 @@ trained model can legitimately differ from another implementation's.
     ./build/gt_train corpus.txt 2000 model.json
     ./build/gt_dump_ids model.json <<< $(echo -n "hello world" | xxd -p | tr -d '\n')
 
+Training scales: 200KB trains in under 0.1s; 4GB trains to a 16k vocabulary
+in 64s single-threaded (Rust parallel: 9s wall). See BENCHMARKS.md.
+
+![Training wall time](evidence/train.svg)
+
 ## Status
 
 Selftest **1680/1680**: oracle `-O0`, ASan+UBSan, and `-O2` builds.
