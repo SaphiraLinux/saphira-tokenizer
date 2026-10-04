@@ -435,3 +435,34 @@ Required next, in order:
    (all 64 bytes of 80..BF width==1 under every bait) once the table is in.
 
 Nothing frozen.
+
+---
+
+# Like-for-like: pristine upstream vs hardened Rust vs C (same box, same corpus)
+
+Per instruction, `gigatoken/` was deleted and re-cloned from
+https://github.com/marcelroed/gigatoken.git (gitignored, not committed).
+Fresh HEAD is `fac0114` — upstream has not moved; matches the forensic record.
+Built release wheel in an isolated venv (`/tmp/upstream-venv`) with the pinned
+nightly, no source changes.
+
+20 MB OWT slice, same machine, same documents:
+
+| implementation | throughput | checksum (20 MB) |
+|---|---|---|
+| pristine upstream `fac0114` (32t batch) | 89 MB/s | 26656246642 |
+| hardened+fixed Rust (32t batch) | ~108 MB/s | 26656246642 |
+| our C (24t) | **~362 MB/s** | 26656246642 |
+
+All three agree exactly on clean text. C is ~4x pristine upstream.
+
+Arbitrary bytes, 4821-doc corpus:
+
+| comparison | mismatches |
+|---|---|
+| C vs pristine upstream | **192** (≈138 width-defect + ≈54 `80..BF`) |
+| C vs corrected Rust | 54 (`80..BF` only) |
+
+The 192 decompose exactly as predicted: the width defect `e749f8f` fixed
+(present in pristine, absent in our branch) plus the `80..BF` defect present
+in both. No surprises; the model of the defects is complete.
