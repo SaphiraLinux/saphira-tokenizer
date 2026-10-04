@@ -22,7 +22,7 @@ TEST    = $(BUILD)/gt_selftest
 
 .PHONY: all tool test check tables asan clean
 
-all: $(TOOL) $(TEST) $(DEBUG) $(BENCH) $(TRAIN)
+all: $(TOOL) $(TEST) $(DEBUG) $(BENCH) $(TRAIN) $(BUILD)/gt_words
 
 $(BUILD):
 	@mkdir -p $(BUILD)
@@ -43,6 +43,9 @@ $(BENCH): $(BUILD)/gt_bench.o $(OBJ)
 	$(CC) $(CFLAGS) $^ -o $@ $(LDLIBS) -pthread
 
 $(TRAIN): $(BUILD)/gt_train_bin.o $(OBJ)
+	$(CC) $(CFLAGS) $^ -o $@ $(LDLIBS)
+
+$(BUILD)/gt_words: $(BUILD)/gt_words.o $(OBJ)
 	$(CC) $(CFLAGS) $^ -o $@ $(LDLIBS)
 
 EXAMPLES = $(BUILD)/encode_demo $(BUILD)/mt_demo
