@@ -100,14 +100,30 @@ Validation (see `evidence/validation.md`):
 - Forensic fixtures (`898881ab`, `b12773`, `bd9b9ae9`) match in spans AND ids.
 - Benchmark checksums identical across 1–32 threads and equal to Rust's sum.
 
-Speed (20 MB OWT slice, shared powersave box, approximate):
+Speed (ramdisk, cold runs, checksums identical — see BENCHMARKS.md):
 
-| build | 1 thread | 24 threads |
+| build | OWT-20M, 24t | bible-119M, 24t |
 |---|---|---|
-| C `-O2 -mavx2 -flto` | ~12 MB/s input | **~306 MB/s input** |
-| Rust release, 32t, SIMD | — | 7.23 MB/s input |
+| C `-O2 -mavx2 -flto`, 256k cache | **880 MB/s** | **1701 MB/s (1.70 GB/s)** |
+| Rust release, 32t | 122 MB/s | 714 MB/s |
+| HF Python | 4.5 MB/s | — |
 
-Single-threaded C already beats 32-thread Rust; at 24 threads C is ~42× faster.
+## Graphs
+
+Ramdisk, cold fresh-process runs, checksums identical or the run is void
+(see BENCHMARKS.md for methodology and the full tables).
+
+Without our cache, Rust's cache wins:
+
+![Rust vs C, cache minimal](evidence/rust-vs-c.svg)
+
+With our 256k-slot cache, C wins on both corpora:
+
+![Rust+cache vs C+cache](evidence/cached-vs-cached.svg)
+
+Cache size vs speed — 18 bits is the L3-bound sweet spot, 20 bits spills:
+
+![Cache size sweep](evidence/cache-sweep.svg)
 
 ## Known divergences (upstream defects, not C bugs)
 
