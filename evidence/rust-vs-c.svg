@@ -1,19 +1,20 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" font-family="sans-serif">
-<text x="320" y="24" text-anchor="middle" font-size="16">Rust vs C (C cache minimal)</text>
-<line x1="60" y1="300" x2="620" y2="300" stroke="black"/>
+<rect x="0" y="0" width="640" height="360" fill="#0d1117" rx="8"/>
+<text fill="#ffffff" x="320" y="24" text-anchor="middle" font-size="16">Rust vs C (C cache minimal)</text>
+<line x1="60" y1="300" x2="620" y2="300" stroke="#8b949e"/>
 <rect x="60" y="263" width="84" height="37" fill="#2b7bbb"/>
-<text x="102" y="259" text-anchor="middle" font-size="11">122</text>
+<text fill="#ffffff" x="102" y="259" text-anchor="middle" font-size="11">122</text>
 <rect x="146" y="272" width="84" height="28" fill="#ee7b25"/>
-<text x="188" y="268" text-anchor="middle" font-size="11">93</text>
-<text x="146" y="318" text-anchor="middle" font-size="12">OWT-20M</text>
+<text fill="#ffffff" x="188" y="268" text-anchor="middle" font-size="11">93</text>
+<text fill="#ffffff" x="146" y="318" text-anchor="middle" font-size="12">OWT-20M</text>
 <rect x="318" y="86" width="84" height="214" fill="#2b7bbb"/>
-<text x="360" y="82" text-anchor="middle" font-size="11">714</text>
+<text fill="#ffffff" x="360" y="82" text-anchor="middle" font-size="11">714</text>
 <rect x="404" y="254" width="84" height="46" fill="#ee7b25"/>
-<text x="446" y="250" text-anchor="middle" font-size="11">153</text>
-<text x="404" y="318" text-anchor="middle" font-size="12">bible-119M</text>
+<text fill="#ffffff" x="446" y="250" text-anchor="middle" font-size="11">153</text>
+<text fill="#ffffff" x="404" y="318" text-anchor="middle" font-size="12">bible-119M</text>
 <rect x="450" y="40" width="12" height="12" fill="#2b7bbb"/>
-<text x="466" y="50" font-size="12">Rust (cached)</text>
+<text fill="#ffffff" x="466" y="50" font-size="12">Rust (cached)</text>
 <rect x="450" y="60" width="12" height="12" fill="#ee7b25"/>
-<text x="466" y="70" font-size="12">C (minimal cache)</text>
-<text x="60" y="352" font-size="10">input MB/s, ramdisk, cold; checksums identical or void</text>
+<text fill="#ffffff" x="466" y="70" font-size="12">C (minimal cache)</text>
+<text fill="#ffffff" x="60" y="352" font-size="10">input MB/s, ramdisk, cold; checksums identical or void</text>
 </svg>

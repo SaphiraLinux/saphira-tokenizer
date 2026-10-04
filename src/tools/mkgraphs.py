@@ -25,8 +25,10 @@ def svg_bar(path, title, groups, series, colors, unit="MB/s", log=False):
     bw = (W - 2 * pad) // (len(groups) * len(series) + len(groups))
     mx = max(max(v) for v in series.values()) * 1.12
     s = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" font-family="sans-serif">']
-    s.append(f'<text x="{W//2}" y="24" text-anchor="middle" font-size="16">{title}</text>')
-    s.append(f'<line x1="{pad}" y1="{H-pad}" x2="{W-20}" y2="{H-pad}" stroke="black"/>')
+    s.append(f'<rect x="0" y="0" width="{W}" height="{H}" fill="#0d1117" rx="8"/>')
+    FG, GRID = "#ffffff", "#8b949e"
+    s.append(f'<text fill="{FG}" x="{W//2}" y="24" text-anchor="middle" font-size="16">{title}</text>')
+    s.append(f'<line x1="{pad}" y1="{H-pad}" x2="{W-20}" y2="{H-pad}" stroke="{GRID}"/>')
     for gi, g in enumerate(groups):
         for si, name in enumerate(series):
             v = series[name][gi]
@@ -34,13 +36,13 @@ def svg_bar(path, title, groups, series, colors, unit="MB/s", log=False):
             x = pad + gi * (len(series) * bw + bw) + si * bw
             y = H - pad - h
             s.append(f'<rect x="{x}" y="{y:.0f}" width="{bw-2}" height="{h:.0f}" fill="{colors[si]}"/>')
-            s.append(f'<text x="{x+(bw-2)//2}" y="{H-pad-h-4:.0f}" text-anchor="middle" font-size="11">{v:g}</text>')
+            s.append(f'<text fill="{FG}" x="{x+(bw-2)//2}" y="{H-pad-h-4:.0f}" text-anchor="middle" font-size="11">{v:g}</text>')
         cx = pad + gi * (len(series) * bw + bw) + (len(series) * bw) // 2
-        s.append(f'<text x="{cx}" y="{H-pad+18}" text-anchor="middle" font-size="12">{g}</text>')
+        s.append(f'<text fill="{FG}" x="{cx}" y="{H-pad+18}" text-anchor="middle" font-size="12">{g}</text>')
     for si, name in enumerate(series):
         s.append(f'<rect x="{W-190}" y="{40+si*20}" width="12" height="12" fill="{colors[si]}"/>')
-        s.append(f'<text x="{W-174}" y="{50+si*20}" font-size="12">{name}</text>')
-    s.append(f'<text x="{pad}" y="{H-8}" font-size="10">input MB/s, ramdisk, cold; checksums identical or void</text>')
+        s.append(f'<text fill="{FG}" x="{W-174}" y="{50+si*20}" font-size="12">{name}</text>')
+    s.append(f'<text fill="{FG}" x="{pad}" y="{H-8}" font-size="10">input MB/s, ramdisk, cold; checksums identical or void</text>')
     s.append('</svg>')
     (OUT / path).write_text("\n".join(s) + "\n")
 
