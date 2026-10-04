@@ -194,6 +194,103 @@ static void test_pretok(void) {
     ok(n == 2, "byte 0xFF is a letter: space attaches, run continues");
 }
 
+
+/* ==========================================================================
+ * SCANNER CONTRACT (permanent; asserted at the scanner level, not via ids)
+ *
+ * Two domains, never blurred:
+ *   BYTES: every byte is a legitimate symbol. No decode, no malformed UTF-8,
+ *          no continuation-byte concept, no "invalid" class.
+ *   The rule: raw byte -> byte-map codepoint -> Unicode category -> class.
+ *   Whitespace is decided on the BYTE (0x20 maps to U+0120, a letter).
+ *   80..BF never assemble (width 1). C0..F4 assemble only with real
+ *   continuations; a malformed lead is 1 byte / Other; a truncated lead at
+ *   EOF stands alone with its byte-alphabet class.
+ * ======================================================================== */
+static void test_scanner_contract(void) {
+    size_t adv;
+    /* 80..BF: never a lead, width exactly 1 under EVERY following byte. */
+    for (int b = 0x80; b <= 0xBF; b++) {
+        for (int t = 0; t < 256; t += 17) {
+            uint8_t in[2] = {(uint8_t)b, (uint8_t)t};
+            (void)gt_pretok_class_at(in, 2, 0, &adv);
+            char what[80];
+            snprintf(what, sizeof what, "80..BF width==1 for %02X then %02X", b, t);
+            ok(adv == 1, what);
+        }
+    }
+    /* F5..FF: never a lead, width 1. */
+    for (int b = 0xF5; b <= 0xFF; b++) {
+        for (int t = 0; t < 256; t += 17) {
+            uint8_t in[2] = {(uint8_t)b, (uint8_t)t};
+            (void)gt_pretok_class_at(in, 2, 0, &adv);
+            char what[80];
+            snprintf(what, sizeof what, "F5..FF width==1 for %02X then %02X", b, t);
+            ok(adv == 1, what);
+        }
+    }
+    /* The derived classes agree with the contract's spot facts. */
+    ok(gt_pretok_class_at((uint8_t[]){0x89}, 1, 0, &adv) == GT_PCLS_LETTER, "0x89 is a letter");
+    ok(gt_pretok_class_at((uint8_t[]){0xBD}, 1, 0, &adv) == GT_PCLS_NUMBER, "0xBD is a number");
+    ok(gt_pretok_class_at((uint8_t[]){0xAB}, 1, 0, &adv) == GT_PCLS_OTHER, "0xAB is other");
+    ok(gt_pretok_class_at((uint8_t[]){0x20}, 1, 0, &adv) == GT_PCLS_SPACE, "0x20 is whitespace by byte");
+    /* Lead validation: real continuations assemble; anything else is 1/Other. */
+    ok(gt_pretok_class_at((uint8_t[]){0xC3, 0xA9}, 2, 0, &adv) == GT_PCLS_LETTER && adv == 2,
+       "valid 2-byte sequence assembles to a letter");
+    ok(gt_pretok_class_at((uint8_t[]){0xEF, 0x40}, 2, 0, &adv) == GT_PCLS_OTHER && adv == 1,
+       "malformed lead is 1 byte / Other");
+    ok(gt_pretok_class_at((uint8_t[]){0xE9}, 1, 0, &adv) == GT_PCLS_LETTER && adv == 1,
+       "truncated lead stands with its byte-alphabet class");
+}
+
+/* Minimal forensic fixtures: expected SPANS as well as final ids, because an
+ * id test can pass while the segmentation is still wrong. */
+static void test_forensic_minimals(const gt_tokenizer *tk) {
+    gt_ids ids;
+    gt_ids_init(&ids);
+    struct {
+        const char *name; const char *bytes; size_t len;
+        const char *spans;
+        gt_token_id want[8]; size_t nwant;
+    } fx[] = {
+        {"CONT",  "\x89\x88\x81\xab", 4, "898881 ab", {231, 230, 223, 104}, 4},
+        {"CONTR", "\xb1's",           3, "b127 73",   {109, 6, 82}, 3},
+        {"NOLL",  "\xbd\x9b\x9a\xe9", 4, "bd 9b9ae9", {121, 249, 21253}, 3},
+    };
+    for (size_t i = 0; i < sizeof fx / sizeof fx[0]; i++) {
+        gt_bytes in = {(const uint8_t *)fx[i].bytes, fx[i].len};
+        gt_pretok_iter it;
+        gt_pretok_iter_init(&it, in);
+        char got[256];
+        size_t gl = 0;
+        gt_bytes p;
+        while (gt_pretok_next(&it, &p)) {
+            for (size_t k = 0; k < p.len; k++)
+                gl += (size_t)snprintf(got + gl, sizeof got - gl, "%02x", p.ptr[k]);
+            gl += (size_t)snprintf(got + gl, sizeof got - gl, " ");
+        }
+        if (gl) got[gl - 1] = 0;
+        char what[96];
+        snprintf(what, sizeof what, "spans %s", fx[i].name);
+        checks++;
+        if (strcmp(got, fx[i].spans) != 0) {
+            failures++;
+            printf("FAIL %s: got \"%s\" want \"%s\"\n", what, got, fx[i].spans);
+        }
+        gt_ids_clear(&ids);
+        gt_status rc = gt_tokenizer_encode((gt_tokenizer *)tk, in, &ids);
+        snprintf(what, sizeof what, "ids %s", fx[i].name);
+        if (rc != GT_OK) {
+            checks++; failures++;
+            printf("FAIL %s: encode %s\n", what, gt_status_str(rc));
+        } else {
+            eq_ids(&ids, fx[i].want, fx[i].nwant, what);
+        }
+    }
+    gt_ids_free(&ids);
+}
+
+
 /* ---- stage: bpe ---- */
 static void test_bpe(void) {
     gt_bpe *b = NULL;
@@ -233,6 +330,8 @@ static void check_rust_vectors(const char *tok_path) {
         printf("FAIL load %s: %s\n", tok_path, gt_status_str(rc));
         return;
     }
+    test_forensic_minimals(tk);
+
     printf("loaded: pretokenizer=%s vocab=%zu max_id=%u merges=%zu added=%zu\n",
            gt_tokenizer_pretokenizer(tk), gt_tokenizer_vocab_size(tk),
            gt_tokenizer_max_id(tk), gt_tokenizer_merge_rules(tk),
@@ -296,6 +395,7 @@ int main(int argc, char **argv) {
     test_bytemap();
     test_pretok();
     test_bpe();
+    test_scanner_contract();
     if (argc > 1) check_rust_vectors(argv[1]);
     else printf("(no tokenizer path given; skipped contract vectors)\n");
 

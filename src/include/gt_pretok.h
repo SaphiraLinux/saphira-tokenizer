@@ -29,6 +29,12 @@ typedef struct {
 
 void gt_pretok_iter_init(gt_pretok_iter *it, gt_bytes input);
 
+/* The scanner's per-position decision, published so tests can assert the
+ * contract directly instead of inferring it through BPE: the class and the
+ * number of bytes consumed at `pos`. `adv` is always >= 1. */
+typedef enum { GT_PCLS_LETTER, GT_PCLS_NUMBER, GT_PCLS_SPACE, GT_PCLS_OTHER } gt_pcls;
+gt_pcls gt_pretok_class_at(const uint8_t *b, size_t len, size_t pos, size_t *adv);
+
 /* Next pretoken, or 0 when the input is exhausted.
  *
  * `out` receives a view into the original buffer. Returns 1 and sets out on

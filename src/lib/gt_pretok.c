@@ -37,8 +37,7 @@ void gt_pretok_iter_init(gt_pretok_iter *it, gt_bytes input) {
  *           and classified here. If the structure fails, consume 1 as Other.
  *   F5..FF  not lead-shaped. Consume 1, byte-alphabet class.
  */
-static gt_cp_class peek_class(const uint8_t *b, size_t len, size_t p,
-                              size_t *adv) {
+gt_pcls gt_pretok_class_at(const uint8_t *b, size_t len, size_t p, size_t *adv) {
     uint8_t byte = b[p];
     *adv = 1;
 
@@ -46,26 +45,40 @@ static gt_cp_class peek_class(const uint8_t *b, size_t len, size_t p,
      * is U+0120, a letter, so classifying the mapped codepoint here would turn
      * every space into a letter and glue "a b" into one run. */
     if (byte < 0x80) {
-        if (byte == 0x20 || (byte >= 0x09 && byte <= 0x0D)) return GT_CLS_SPACE;
+        if (byte == 0x20 || (byte >= 0x09 && byte <= 0x0D)) return GT_PCLS_SPACE;
         uint32_t cp = byte;
-        if (gt_cp_is_letter(cp)) return GT_CLS_LETTER;
-        if (gt_cp_is_number(cp)) return GT_CLS_NUMBER;
-        return GT_CLS_OTHER;
+        if (gt_cp_is_letter(cp)) return GT_PCLS_LETTER;
+        if (gt_cp_is_number(cp)) return GT_PCLS_NUMBER;
+        return GT_PCLS_OTHER;
     }
 
     /* Non-lead-shaped high bytes: never assemble. */
     if (byte < 0xC0 || byte >= 0xF5) {
         switch (GT_BYTE_CLASS[byte - 0x80]) {
-        case 'L': return GT_CLS_LETTER;
-        case 'N': return GT_CLS_NUMBER;
-        case 'S': return GT_CLS_SPACE;
-        default:  return GT_CLS_OTHER;
+        case 'L': return GT_PCLS_LETTER;
+        case 'N': return GT_PCLS_NUMBER;
+        case 'S': return GT_PCLS_SPACE;
+        default:  return GT_PCLS_OTHER;
         }
     }
 
     /* Lead-shaped: only assemble when the structure is really there. */
     size_t w = (byte < 0xE0) ? 2 : ((byte < 0xF0) ? 3 : 4);
-    if (p + w <= len) {
+    if (p + 1 >= len) {
+        /* Final byte: nothing follows, so this byte cannot start a structural
+         * sequence at all. It stands alone with its byte-alphabet category --
+         * e.g. a trailing 0xE9 is 'e-acute', a letter, and must not break a
+         * letter run. (A lead WITH a follower that is not a continuation is
+         * malformed, below, and is Other. Last-byte vs has-follower is the
+         * real boundary, not truncatability in the abstract.) */
+        switch (GT_BYTE_CLASS[byte - 0x80]) {
+        case 'L': return GT_PCLS_LETTER;
+        case 'N': return GT_PCLS_NUMBER;
+        case 'S': return GT_PCLS_SPACE;
+        default:  return GT_PCLS_OTHER;
+        }
+    }
+    if (1) {
         size_t k = 1;
         for (; k < w; k++) {
             if ((b[p + k] & 0xC0) != 0x80) break;
@@ -80,14 +93,14 @@ static gt_cp_class peek_class(const uint8_t *b, size_t len, size_t p,
                 cp = (uint32_t)(((b[p] & 0x07) << 18) | ((b[p + 1] & 0x3F) << 12) |
                                 ((b[p + 2] & 0x3F) << 6) | (b[p + 3] & 0x3F));
             if (cp > 0x10FFFF) cp = 0x10FFFF; /* clamp, as the reference does */
-            if (gt_cp_is_letter(cp)) { *adv = w; return GT_CLS_LETTER; }
-            if (gt_cp_is_number(cp)) { *adv = w; return GT_CLS_NUMBER; }
-            if (gt_cp_is_space(cp))   { *adv = w; return GT_CLS_SPACE; }
-            *adv = w; return GT_CLS_OTHER;
+            if (gt_cp_is_letter(cp)) { *adv = w; return GT_PCLS_LETTER; }
+            if (gt_cp_is_number(cp)) { *adv = w; return GT_PCLS_NUMBER; }
+            if (gt_cp_is_space(cp))   { *adv = w; return GT_PCLS_SPACE; }
+            *adv = w; return GT_PCLS_OTHER;
         }
     }
     /* Malformed or truncated lead: one byte, Other. */
-    return GT_CLS_OTHER;
+    return GT_PCLS_OTHER;
 }
 
 /* An ASCII literal at the cursor: "'s", "'t", "'re", "'ve", "'m", "'ll", "'d".
@@ -134,49 +147,40 @@ int gt_pretok_next(gt_pretok_iter *it, gt_bytes *out) {
     }
 
     /* Branches 2-4 all have the shape ` ?X+`: an optional single leading
-     * space, then a run of one class. The space is ASCII 0x20 only — the
-     * pattern writes a literal space, not \s. */
+     * space, then a run of one class. The space is ASCII 0x20 only -- the
+     * pattern writes a literal space, not \s. Letters and numbers each get
+     * their own run here; "other" is branch 4 below. */
     if (b[p] == ' ' && p + 1 < len) {
         /* Only consume the space if something after it can start a run. A
          * trailing lone space belongs to the \s+ branches instead. */
         size_t adv;
-        gt_cp_class c = peek_class(b, len, p + 1, &adv);
-        /* Anything that is not whitespace can follow the optional space:
-         * letter, number, or other -- and an invalid byte IS 'other'. */
-        if (c != GT_CLS_SPACE) {
+        gt_pcls c = gt_pretok_class_at(b, len, p + 1, &adv);
+        if (c != GT_PCLS_SPACE) {
             p += 1;
         }
     }
 
-    size_t adv;
-    gt_cp_class c = peek_class(b, len, p, &adv);
-    if (c == GT_CLS_LETTER || c == GT_CLS_NUMBER || c == GT_CLS_INVALID_UTF8) {
-        /* ` ?\p{L}+` and ` ?\p{N}+` both mean "one or more", and an invalid
-         * byte lands in the `other` class, so it joins branch 4 below. */
-        gt_cp_class want =
-            (c == GT_CLS_INVALID_UTF8) ? GT_CLS_INVALID_UTF8 : c;
-        size_t q = p;
-        size_t last = p;
-        while (q < len) {
-            size_t a;
-            gt_cp_class cc = peek_class(b, len, q, &a);
-            if (want == GT_CLS_INVALID_UTF8) {
-                if (cc != GT_CLS_INVALID_UTF8) break;
-            } else if (cc != want) {
-                break;
+    {
+        size_t adv;
+        gt_pcls c = gt_pretok_class_at(b, len, p, &adv);
+        if (c == GT_PCLS_LETTER || c == GT_PCLS_NUMBER) {
+            size_t q = p;
+            size_t last = p;
+            while (q < len) {
+                size_t a;
+                if (gt_pretok_class_at(b, len, q, &a) != c) break;
+                q += a;
+                last = q;
             }
-            q += a;
-            last = q;
+            if (last > p) {
+                it->pos = last;
+                out->ptr = b + start;
+                out->len = last - start;
+                return 1;
+            }
+            /* Nothing matched after all; fall through with the cursor where it was. */
+            p = start;
         }
-        if (last > p) {
-            it->pos = last;
-            out->ptr = b + start;
-            out->len = last - start;
-            return 1;
-        }
-        /* Nothing matched after all; fall through to the whitespace and
-         * catch-all branches with the cursor where it was. */
-        p = start;
     }
 
     /* Branches 5 and 6: `\s+(?!\S)` then `\s+`.
@@ -195,11 +199,11 @@ int gt_pretok_next(gt_pretok_iter *it, gt_bytes *out) {
      * branch 6 takes the whole run. */
     {
         size_t a;
-        if (peek_class(b, len, p, &a) == GT_CLS_SPACE) {
+        if (gt_pretok_class_at(b, len, p, &a) == GT_PCLS_SPACE) {
             size_t q = p, last = p;
             while (q < len) {
                 size_t k;
-                if (peek_class(b, len, q, &k) != GT_CLS_SPACE) break;
+                if (gt_pretok_class_at(b, len, q, &k) != GT_PCLS_SPACE) break;
                 q += k;
                 last = q;
             }
@@ -210,7 +214,7 @@ int gt_pretok_next(gt_pretok_iter *it, gt_bytes *out) {
                 size_t prev = p, pq = p;
                 while (pq < last) {
                     size_t k, before = pq;
-                    peek_class(b, len, pq, &k);
+                    gt_pretok_class_at(b, len, pq, &k);
                     pq += k;
                     if (pq == last) prev = before;
                 }
@@ -238,8 +242,8 @@ int gt_pretok_next(gt_pretok_iter *it, gt_bytes *out) {
         bool any = false;
         while (q < len) {
             size_t k;
-            gt_cp_class cc = peek_class(b, len, q, &k);
-            if (cc == GT_CLS_SPACE || cc == GT_CLS_LETTER || cc == GT_CLS_NUMBER) break;
+            gt_pcls cc = gt_pretok_class_at(b, len, q, &k);
+            if (cc == GT_PCLS_SPACE || cc == GT_PCLS_LETTER || cc == GT_PCLS_NUMBER) break;
             q += k;
             any = true;
         }
