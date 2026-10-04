@@ -29,4 +29,10 @@ size_t gt_special_count(const gt_special *s);
  * pretokenization so a special token is never split by the pattern. */
 bool gt_special_contains(const gt_special *s, gt_bytes input);
 
+/* Leftmost special-token match at or after `from`. Longest wins when several
+ * start at the same position. Returns true and fills start/len/id; false if
+ * none. Empty-content and non-special entries never match. */
+bool gt_special_find(const gt_special *s, gt_bytes input, size_t from,
+                     size_t *start, size_t *len, gt_token_id *id);
+
 #endif /* GT_SPECIAL_H */

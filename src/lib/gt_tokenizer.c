@@ -167,7 +167,12 @@ static gt_status add_push(add_tab *t, const gt_added_token *a) {
 
 static void vkey_free(vkey_tab *v) { free(v->cps); free(v->lens); free(v->ids); }
 static void str_free(str_tab *t) { for (size_t i = 0; i < t->n; i++) free(t->rule[i]); free(t->rule); }
-static void add_free(add_tab *t) { free(t->tok); }
+static void add_free(add_tab *t) {
+    if (!t || !t->tok) return;
+    for (size_t i = 0; i < t->n; i++) free((void *)t->tok[i].content.ptr);
+    free(t->tok);
+    t->tok = NULL;
+}
 
 /* Parse one "model" object: vocab map + merges list. */
 static gt_status parse_model(gt_json *j, vkey_tab *vocab, str_tab *merges) {
@@ -294,8 +299,12 @@ static gt_status parse_added(gt_json *j, add_tab *added) {
         }
         a.content.ptr = content.data;
         a.content.len = content.len;
-        rc = add_push(added, &a);   /* owns the buffer via ptr */
-        gt_buf_clear(&content);      /* buffer freed below, data kept */
+        rc = add_push(added, &a);
+        if (rc != GT_OK) { gt_buf_free(&content); goto out; }
+        /* Do NOT free content: gt_special_new duplicates it below, and the
+         * load function releases these parse-side buffers afterwards. */
+        content.data = NULL;
+        content.len = content.cap = 0;
         gt_buf_free(&content);
         if (rc != GT_OK) goto out;
         rc = gt_json_arr_next(&j2, &adone);
@@ -486,8 +495,10 @@ static void scratch_free(gt_scratch *s) {
     s->cap = s->sym_cap = 0;
 }
 
-static gt_status encode_inner(const gt_tokenizer *t, gt_bytes input, gt_ids *out,
-                            gt_encode_stats *st) {
+/* Encode one special-free span: pretokenize -> byte-map -> BPE -> vocab. */
+static gt_status encode_span(const gt_tokenizer *t, gt_bytes input, gt_ids *out,
+                             gt_encode_stats *st, gt_scratch *sc) {
+    if (!t || !out || !st || !sc) return GT_ERR_NULL_ARG;
     if (!t || !out) return GT_ERR_NULL_ARG;
     gt_encode_stats local;
     if (!st) st = &local;
@@ -499,7 +510,6 @@ static gt_status encode_inner(const gt_tokenizer *t, gt_bytes input, gt_ids *out
     gt_pretok_iter it;
     gt_pretok_iter_init(&it, input);
 
-    gt_scratch sc = {NULL, 0, NULL, 0};
     gt_bytes piece;
     while (gt_pretok_next(&it, &piece)) {
         st->n_pretokens++;
@@ -526,7 +536,7 @@ static gt_status encode_inner(const gt_tokenizer *t, gt_bytes input, gt_ids *out
                         st->n_pcache_hits++;
                         for (size_t k = 0; k < nn; k++) {
                             rc = gt_ids_push(out, tmp[k]);
-                            if (rc != GT_OK) { scratch_free(&sc); return rc; }
+                            if (rc != GT_OK) { return rc; }
                         }
                         st->n_vocab_hits += nn;
                         continue;
@@ -538,30 +548,30 @@ static gt_status encode_inner(const gt_tokenizer *t, gt_bytes input, gt_ids *out
 
         /* Stage: byte map. Every byte of the pretoken becomes one mapped
          * codepoint. */
-        rc = scratch_reserve(&sc, piece.len ? piece.len : 1, piece.len ? piece.len : 1);
-        if (rc != GT_OK) { scratch_free(&sc); return rc; }
+        rc = scratch_reserve(sc, piece.len ? piece.len : 1, piece.len ? piece.len : 1);
+        if (rc != GT_OK) { return rc; }
         size_t ncps = 0;
         for (size_t i = 0; i < piece.len; i++) {
-            sc.cps[ncps++] = (uint16_t)gt_byte_to_cp(piece.ptr[i]);
+            sc->cps[ncps++] = (uint16_t)gt_byte_to_cp(piece.ptr[i]);
         }
         st->n_mapped_codepoints += ncps;
 
         /* Stage: BPE. */
-        size_t nsym = gt_bpe_merge(t->bpe, sc.cps, ncps, sc.syms, sc.sym_cap);
+        size_t nsym = gt_bpe_merge(t->bpe, sc->cps, ncps, sc->syms, sc->sym_cap);
         st->n_merged_symbols += nsym;
 
         /* Stage: vocabulary. */
         for (size_t i = 0; i < nsym; i++) {
-            gt_token_id id = gt_vocab_lookup(t->vocab, sc.cps + sc.syms[i].off,
-                                             sc.syms[i].len);
+            gt_token_id id = gt_vocab_lookup(t->vocab, sc->cps + sc->syms[i].off,
+                                             sc->syms[i].len);
             if (id == GT_ID_NONE) {
                 st->n_vocab_misses++;
-                scratch_free(&sc);
+                /* caller frees scratch */
                 return GT_ERR_STAGE_VOCAB;
             }
             st->n_vocab_hits++;
             rc = gt_ids_push(out, id);
-            if (rc != GT_OK) { scratch_free(&sc); return rc; }
+            if (rc != GT_OK) { return rc; }
         }
         /* Fill the memo slot found above (same hash, no second probe walk).
          * Only when the result fits; anything else bypasses next time too. */
@@ -578,8 +588,51 @@ static gt_status encode_inner(const gt_tokenizer *t, gt_bytes input, gt_ids *out
             __atomic_clear(lk, __ATOMIC_RELEASE);
         }
     }
-    scratch_free(&sc);
+    /* caller frees scratch */
     return GT_OK;
+}
+
+static gt_status encode_inner(const gt_tokenizer *t, gt_bytes input, gt_ids *out,
+                            gt_encode_stats *st) {
+    if (!t || !out) return GT_ERR_NULL_ARG;
+    gt_encode_stats local;
+    if (!st) st = &local;
+    memset(st, 0, sizeof *st);
+
+    gt_status rc = gt_ids_reserve(out, input.len ? input.len : 1);
+    if (rc != GT_OK) return rc;
+
+    /* Special tokens split first: a match is never pretokenized, and text
+     * on either side encodes independently. The common case (no special
+     * token present) skips this entirely via gt_special_contains. */
+    gt_scratch sc = {NULL, 0, NULL, 0};
+    if (gt_special_count(t->special) > 0 && gt_special_contains(t->special, input)) {
+        size_t pos = 0;
+        for (;;) {
+            size_t ms = 0, ml = 0;
+            gt_token_id mid = 0;
+            if (!gt_special_find(t->special, input, pos, &ms, &ml, &mid)) {
+                gt_bytes tail = {input.ptr + pos, input.len - pos};
+                rc = encode_span(t, tail, out, st, &sc);
+                break;
+            }
+            if (ms > pos) {
+                gt_bytes gap = {input.ptr + pos, ms - pos};
+                rc = encode_span(t, gap, out, st, &sc);
+                if (rc != GT_OK) break;
+            }
+            rc = gt_ids_push(out, mid);
+            if (rc != GT_OK) break;
+            pos = ms + ml;
+            if (pos >= input.len) break;
+        }
+        scratch_free(&sc);
+        return rc;
+    }
+
+    rc = encode_span(t, input, out, st, &sc);
+    scratch_free(&sc);
+    return rc;
 }
 
 gt_status gt_tokenizer_encode(gt_tokenizer *t, gt_bytes input, gt_ids *out) {

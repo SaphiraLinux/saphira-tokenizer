@@ -261,6 +261,11 @@ static void test_forensic_minimals(const gt_tokenizer *tk) {
         {"CONT",  "\x89\x88\x81\xab", 4, "898881 ab", {231, 230, 223, 104}, 4},
         {"CONTR", "\xb1's",           3, "b127 73",   {109, 6, 82}, 3},
         {"NOLL",  "\xbd\x9b\x9a\xe9", 4, "bd 9b9ae9", {121, 249, 21253}, 3},
+        /* Special token: never pretokenized, emitted as its id. OWT uses
+         * <|endoftext|> as a document separator, so ignoring it diverged on
+         * ~2.6% of real documents before the split was implemented. */
+        {"SPECIAL", "<|endoftext|>", 13, NULL, {50256}, 1},
+        {"SPECIAL2", "a<|endoftext|>b", 15, NULL, {64, 50256, 65}, 3},
     };
     for (size_t i = 0; i < sizeof fx / sizeof fx[0]; i++) {
         gt_bytes in = {(const uint8_t *)fx[i].bytes, fx[i].len};
@@ -269,16 +274,18 @@ static void test_forensic_minimals(const gt_tokenizer *tk) {
         char got[256];
         size_t gl = 0;
         gt_bytes p;
+        if (!fx[i].spans) goto ids_only;
         while (gt_pretok_next(&it, &p)) {
             for (size_t k = 0; k < p.len; k++)
                 gl += (size_t)snprintf(got + gl, sizeof got - gl, "%02x", p.ptr[k]);
             gl += (size_t)snprintf(got + gl, sizeof got - gl, " ");
         }
         if (gl) got[gl - 1] = 0;
+    ids_only:;
         char what[96];
         snprintf(what, sizeof what, "spans %s", fx[i].name);
         checks++;
-        if (strcmp(got, fx[i].spans) != 0) {
+        if (fx[i].spans && strcmp(got, fx[i].spans) != 0) {
             failures++;
             printf("FAIL %s: got \"%s\" want \"%s\"\n", what, got, fx[i].spans);
         }
