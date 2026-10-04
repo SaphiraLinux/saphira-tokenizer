@@ -230,7 +230,6 @@ size_t gt_bpe_merge(const gt_bpe *b, const uint16_t *cps, size_t ncps,
         n++;
     }
 
-    const int trace = getenv("GT_BPE_TRACE") != NULL;
     for (;;) {
         /* lowest-ranked adjacent pair */
         int32_t best = -1;
@@ -246,10 +245,6 @@ size_t gt_bpe_merge(const gt_bpe *b, const uint16_t *cps, size_t ncps,
 
         gt_symbol A = syms[best_i];
         gt_symbol B = syms[best_i + 1];
-        if (trace) {
-            fprintf(stderr, "iter: n=%zu best=%d i=%zu A(off=%u len=%u) B(off=%u len=%u)\n",
-                    n, (int)best, best_i, A.off, A.len, B.off, B.len);
-        }
 
         /* Replace every leftmost non-overlapping occurrence, matching the
          * original: scan forward, on a hit consume both symbols, on a miss
@@ -272,11 +267,6 @@ size_t gt_bpe_merge(const gt_bpe *b, const uint16_t *cps, size_t ncps,
             }
         }
         n = w;
-        if (getenv("GT_BPE_TRACE")) {
-            fprintf(stderr, "  -> n=%zu [", n);
-            for (size_t k = 0; k < n; k++) fprintf(stderr, "%s(off=%u len=%u)", k?", ":"", syms[k].off, syms[k].len);
-            fprintf(stderr, "]\n");
-        }
         if (n <= 1) break;
     }
 
