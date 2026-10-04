@@ -23,6 +23,14 @@ Shares one read-only tokenizer across N threads via `gt_tokenizer_encode_mt`
 and prints a checksum per thread. All checksums must agree; if they don't,
 the sharing contract is broken.
 
+## gt_train
+
+    ./build/gt_train <corpus> <vocab_size> <out.json>
+
+Trains a BPE tokenizer from a raw-byte corpus entirely in C and writes a
+`tokenizer.json` that `gt_dump_ids` and `gt_tokenizer_load` read back. No
+Python involved at any step.
+
 ## quickstart.py
 
 Needs the audit venv (it imports the pinned Rust wheel for comparison):

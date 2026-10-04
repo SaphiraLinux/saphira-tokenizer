@@ -17,11 +17,12 @@ OBJ     = $(patsubst lib/%.c,$(BUILD)/%.o,$(SRC))
 TOOL    = $(BUILD)/gt_dump_ids
 DEBUG   = $(BUILD)/gt_debug_stages
 BENCH   = $(BUILD)/gt_bench
+TRAIN   = $(BUILD)/gt_train
 TEST    = $(BUILD)/gt_selftest
 
 .PHONY: all tool test check tables asan clean
 
-all: $(TOOL) $(TEST) $(DEBUG) $(BENCH)
+all: $(TOOL) $(TEST) $(DEBUG) $(BENCH) $(TRAIN)
 
 $(BUILD):
 	@mkdir -p $(BUILD)
@@ -40,6 +41,9 @@ $(DEBUG): $(BUILD)/gt_debug_stages.o $(OBJ)
 
 $(BENCH): $(BUILD)/gt_bench.o $(OBJ)
 	$(CC) $(CFLAGS) $^ -o $@ $(LDLIBS) -pthread
+
+$(TRAIN): $(BUILD)/gt_train_bin.o $(OBJ)
+	$(CC) $(CFLAGS) $^ -o $@ $(LDLIBS)
 
 EXAMPLES = $(BUILD)/encode_demo $(BUILD)/mt_demo
 

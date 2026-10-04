@@ -14,6 +14,7 @@
 #include "gt_bytemap.h"
 #include "gt_pretok.h"
 #include "gt_tokenizer.h"
+#include "gt_train.h"
 #include "gt_unicode.h"
 
 static int failures;
@@ -413,12 +414,48 @@ static void check_rust_vectors(const char *tok_path) {
     gt_tokenizer_free(tk);
 }
 
+
+/* Training: a controlled corpus must produce exactly the expected merges.
+ * Tie-breaking is part of the contract (lowest pair by symbol id, then
+ * first-seen), so this pins the policy, not just the mechanism. */
+static void test_train(void) {
+    /* "ab ab" + "ab": word "ab" x3, so (a,b) count 3 wins outright. */
+    const char *d0 = "ab ab", *d1 = "ab";
+    gt_bytes docs[2] = {{(const uint8_t *)d0, 5}, {(const uint8_t *)d1, 2}};
+    gt_trained t;
+    memset(&t, 0, sizeof t);
+    ok(gt_train(docs, 2, 257, NULL, 0, &t) == GT_OK, "train tiny succeeds");
+    ok(t.ntoks == 257 && t.nmerges == 1, "tiny yields 1 merge");
+    if (t.nmerges == 1) {
+        ok(t.merges[0].left.len == 1 && t.merges[0].left.data[0] == 'a' &&
+           t.merges[0].right.len == 1 && t.merges[0].right.data[0] == 'b' &&
+           t.merges[0].id == 256, "merge is a+b -> 256");
+    }
+    /* The trained model must load in our own loader and encode. */
+    ok(gt_train_write_json(&t, "/tmp/gt_selftest_tiny.json") == GT_OK,
+       "trained model writes json");
+    gt_tokenizer *tk = NULL;
+    ok(gt_tokenizer_load("/tmp/gt_selftest_tiny.json", &tk) == GT_OK,
+       "trained model loads");
+    if (tk) {
+        gt_ids ids;
+        gt_ids_init(&ids);
+        gt_bytes in = {(const uint8_t *)"ab", 2};
+        ok(gt_tokenizer_encode(tk, in, &ids) == GT_OK && ids.len == 1 &&
+           ids.data[0] == 256, "trained model encodes ab -> [256]");
+        gt_ids_free(&ids);
+        gt_tokenizer_free(tk);
+    }
+    gt_trained_free(&t);
+}
+
 int main(int argc, char **argv) {
     test_unicode();
     test_bytemap();
     test_pretok();
     test_bpe();
     test_scanner_contract();
+    test_train();
     /* The ASCII fast-path table must agree with the UCD range tables. */
     for (int c = 0; c < 0x80; c++) {
         char what[64];

@@ -74,6 +74,19 @@ Tables are generated, never hand-maintained: `gen_unicode_tables.py` (UCD 16),
     source /home/smalley/src-provenance/audit-venv/bin/activate
     python3 examples/quickstart.py "$FIX" ./build
 
+## Training (C, no Python)
+
+    ./build/gt_train <corpus> <vocab_size> <out.json>
+
+Raw bytes in, GPT-2-style `tokenizer.json` out — the same layout
+`gt_tokenizer_load` reads, so a trained model round-trips with no other tool.
+Documents are split on newlines. Tie-breaking is deterministic (lowest pair by
+symbol id, then first-seen) and pinned in selftest; it is the one place a
+trained model can legitimately differ from another implementation's.
+
+    ./build/gt_train corpus.txt 2000 model.json
+    ./build/gt_dump_ids model.json <<< $(echo -n "hello world" | xxd -p | tr -d '\n')
+
 ## Status
 
 Selftest **1680/1680**: oracle `-O0`, ASan+UBSan, and `-O2` builds.
