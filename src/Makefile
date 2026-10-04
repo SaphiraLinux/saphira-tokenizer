@@ -62,5 +62,12 @@ asan:
 	        CFLAGS="-std=c11 -O1 -g $(WARN) -fsanitize=address,undefined -fno-omit-frame-pointer" \
 	        LDFLAGS="-fsanitize=address,undefined" all
 
+# Optimised build: -O2, AVX2, LTO. Same source, same selftest, same checksum.
+# The default `all` stays -O0 for oracle verification; use this for speed.
+opt:
+	$(MAKE) BUILD=build-opt \
+	        CFLAGS="-std=c11 -O2 -g -mavx2 -flto $(WARN)" \
+	        LDFLAGS="-flto" all
+
 clean:
 	rm -rf build build-asan
