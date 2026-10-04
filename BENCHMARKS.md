@@ -32,9 +32,20 @@
 | implementation | OWT-20M | bible-119M |
 |---|---|---|
 | C 1t | ~19–22 MB/s | ~25 MB/s |
-| C 24t | **~318 MB/s** (cold) | **~328 MB/s** (cold, 24 physical no-HT) |
-| Rust 32t | ~134 MB/s (cold) | ~352 MB/s (cold) |
+| C 24t, cache minimal (8-bit) | 93 MB/s | 153 MB/s |
+| C 24t, cache 256k (18-bit) | **880 MB/s** | **1701 MB/s (1.70 GB/s)** |
+| Rust 32t (cache always on) | 122 MB/s | 714 MB/s |
 | HF Python | 4.5 MB/s (2 MB sample) | — |
+
+Ramdisk (`/dev/shm`, corpora + fixture copied there) so these are pure
+tokenization, not disk I/O — disk numbers were identical (page cache), and
+ramdisk proves it. See `evidence/rust-vs-c.svg` (Rust wins without our
+cache), `evidence/cached-vs-cached.svg` (C wins with it), and
+`evidence/cache-sweep.svg` (size vs speed, L3 bound at 18 bits).
+
+The cache is what flips the result: without it Rust beats C on both corpora
+(its cache vs our bare per-byte speed); with it C beats Rust 7.2x on OWT and
+2.4x on bible. That pair of graphs is the whole argument for the cache.
 
 Cold means a fresh process per run. Warm second runs in one process flatter
 Rust considerably (1156 MB/s OWT, 830 MB/s bible) because its in-memory

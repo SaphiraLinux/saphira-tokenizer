@@ -392,12 +392,29 @@ gt_status gt_tokenizer_load(const char *path, gt_tokenizer **out) {
     rc = gt_special_new(added.tok, added.n, &t->special);
     if (rc != GT_OK) goto fail;
     {
-        /* Size from the environment so it can be swept without rebuilding;
-         * default 64k slots (~3MB). Clamped to a sane range. */
+        /* Size from the environment so it can be swept without rebuilding.
+         * Bound by the real L3: the table must not exceed half of L3, so it
+         * shares the cache with the vocab/BPE tables and other threads'
+         * working sets instead of evicting them. An explicit request above
+         * the bound is clamped, not honoured -- a cache larger than L3 is a
+         * DRAM table that poisons everything else. */
+        unsigned l3kb = 32768;
+        FILE *cf = fopen("/sys/devices/system/cpu/cpu0/cache/index3/size", "r");
+        if (cf) {
+            unsigned v = 0;
+            char u = 0;
+            if (fscanf(cf, "%u%c", &v, &u) >= 1 && (u == 'K' || u == 'k')) l3kb = v;
+            fclose(cf);
+        }
+        size_t budget = (size_t)l3kb * 1024u / 2u;
+        unsigned maxbits = 8;
+        while (maxbits < 22 &&
+               ((size_t)1 << (maxbits + 1)) * sizeof(gt_pcent) <= budget)
+            maxbits++;
         const char *e = getenv("GT_PCACHE_BITS");
         unsigned bits = e ? (unsigned)atoi(e) : GT_PC_DEFAULT_BITS;
         if (bits < 8) bits = 8;
-        if (bits > 22) bits = 22;
+        if (bits > maxbits) bits = maxbits;
         size_t nslots = (size_t)1 << bits;
         t->pcache = (gt_pcent *)calloc(nslots, sizeof(gt_pcent));
         if (!t->pcache) { rc = GT_ERR_OOM; goto fail; }
