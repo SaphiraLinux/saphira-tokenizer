@@ -28,3 +28,19 @@ box, and `-O2` alone (no source change) nearly triples it. The hex CLI roughly
 doubles input bytes plus decode cost, so a binary input path is the obvious
 first honest gain. No optimisation work until exactness is frozen, and
 exactness is not frozen while the upstream defect stands.
+
+## Thread pinning (i9-13900K, bible 119 MB)
+- 24 physical, no HT (8P-even + 16E): **603 MB/s** (best)
+- 16 E-cores only: 366 MB/s
+- 16 P-threads (HT on): 338 MB/s (SMT contention loses to E-cores here)
+- 24 threads unpinned: ~306 MB/s on OWT slice
+- 32 threads: drops (E-core SMT + power limits)
+
+## Reverted optimizations (proven wrong or negative)
+- Pretoken memo v1 (open addressing): 7x slowdown. Cause: double hashing,
+  unbounded probes on a filling table, L1-hostile size.
+- Whole-pretoken vocab fast path: CHANGED OUTPUT (BPE does not necessarily
+  reproduce whole-pretoken vocab entries; a lower-rank inner merge can block
+  the full merge). Caught by checksum before shipping. Reverted.
+- PGO (-fprofile-use from OWT): slower on bible (452 vs 603). Overfitted;
+  not used.
