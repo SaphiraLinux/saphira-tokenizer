@@ -10,13 +10,54 @@
 #include "gt_pretok.h"
 #include "gt_unicode.h"
 
+/* Pretoken memo, v2: DIRECT-MAPPED, not open-addressed.
+ *
+ * v1 failed (7x slowdown) for three concrete reasons this fixes:
+ *  1. two hashes per pretoken (lookup, then insert) -> one hash, reused;
+ *  2. unbounded linear probes on an 8k table that filled up -> exactly one
+ *     slot per pretoken (index = hash & mask), overwrite on collision;
+ *  3. 256KB table thrashing L1/L2 -> 2k slots (~64KB) so hot entries stay put.
+ * A collision only evicts (never corrupts): memcmp verifies every hit, so a
+ * hit returns bit-identical ids to a miss. Pure memoisation.
+ */
+#define GT_PC_BITS 11
+#define GT_PC_SIZE (1u << GT_PC_BITS)
+#define GT_PC_MASK (GT_PC_SIZE - 1)
+#define GT_PC_MAXKEY 15
+#define GT_PC_MAXIDS 7
+
+typedef struct {
+    /* Seqlock counter: even = stable, odd = writer inside. ONLY touched via
+     * __atomic_* builtins (plain uint32_t so those builtins accept it); see
+     * the lookup/insert below for the protocol. */
+    uint32_t seq;
+    uint8_t klen;
+    uint8_t key[GT_PC_MAXKEY];
+    uint8_t nids;
+    gt_token_id ids[GT_PC_MAXIDS];
+} gt_pcent;
+
 struct gt_tokenizer {
     gt_vocab *vocab;
     gt_bpe *bpe;
     gt_special *special;
     char pretok_kind[32];
     gt_encode_stats stats;
+    gt_pcent *pcache;
+    /* Striped insert spinlocks: concurrent inserts to the same slot would
+     * break the seqlock (two writers interleave 0->1->2->3->4 and land even
+     * with torn data). One flag per 8 slots; only inserts take them, so the
+     * hot lookup path stays lock-free. */
+    char *ilock;
 };
+
+static uint32_t pchash(const uint8_t *p, size_t n) {
+    uint32_t h = 2166136261u;
+    for (size_t i = 0; i < n; i++) { h ^= p[i]; h *= 16777619u; }
+    h ^= (uint32_t)n;
+    h *= 16777619u;
+    return h;
+}
 
 /* ---- loading ---------------------------------------------------------- */
 
@@ -351,6 +392,10 @@ gt_status gt_tokenizer_load(const char *path, gt_tokenizer **out) {
     if (rc != GT_OK) goto fail;
     rc = gt_special_new(added.tok, added.n, &t->special);
     if (rc != GT_OK) goto fail;
+    t->pcache = (gt_pcent *)calloc(GT_PC_SIZE, sizeof(gt_pcent));
+    if (!t->pcache) { rc = GT_ERR_OOM; goto fail; }
+    t->ilock = (char *)calloc(GT_PC_SIZE / 8, 1);
+    if (!t->ilock) { rc = GT_ERR_OOM; goto fail; }
 
     vkey_free(&vocab);
     str_free(&merges);
@@ -373,6 +418,8 @@ void gt_tokenizer_free(gt_tokenizer *t) {
     gt_vocab_free(t->vocab);
     gt_bpe_free(t->bpe);
     gt_special_free(t->special);
+    free(t->pcache);
+    free(t->ilock);
     free(t);
 }
 
@@ -431,6 +478,38 @@ static gt_status encode_inner(const gt_tokenizer *t, gt_bytes input, gt_ids *out
     while (gt_pretok_next(&it, &piece)) {
         st->n_pretokens++;
 
+        /* Memo: one hash, one slot. A hit skips BPE+vocab entirely; a miss
+         * fills the same slot so there is never a second hash or probe. */
+        gt_pcent *slot = NULL;
+        uint32_t ph = 0;
+        if (piece.len >= 1 && piece.len <= GT_PC_MAXKEY) {
+            ph = pchash(piece.ptr, piece.len);
+            slot = &t->pcache[ph & GT_PC_MASK];
+            /* Seqlock read: sample seq, copy bounded data, re-sample. A
+             * change means a torn read -> miss (costs BPE, never wrong ids).
+             * nids is clamped BEFORE use: a torn count must not size a copy. */
+            uint32_t s0 = __atomic_load_n(&slot->seq, __ATOMIC_ACQUIRE);
+            if ((s0 & 1u) == 0 && slot->klen == piece.len &&
+                memcmp(slot->key, piece.ptr, piece.len) == 0) {
+                size_t nn = slot->nids;
+                if (nn >= 1 && nn <= GT_PC_MAXIDS) {
+                    gt_token_id tmp[GT_PC_MAXIDS];
+                    for (size_t k = 0; k < nn; k++) tmp[k] = slot->ids[k];
+                    uint32_t s1 = __atomic_load_n(&slot->seq, __ATOMIC_ACQUIRE);
+                    if (s0 == s1) {
+                        st->n_pcache_hits++;
+                        for (size_t k = 0; k < nn; k++) {
+                            rc = gt_ids_push(out, tmp[k]);
+                            if (rc != GT_OK) { scratch_free(&sc); return rc; }
+                        }
+                        st->n_vocab_hits += nn;
+                        continue;
+                    }
+                }
+            }
+            st->n_pcache_miss++;
+        }
+
         /* Stage: byte map. Every byte of the pretoken becomes one mapped
          * codepoint. */
         rc = scratch_reserve(&sc, piece.len ? piece.len : 1, piece.len ? piece.len : 1);
@@ -457,6 +536,20 @@ static gt_status encode_inner(const gt_tokenizer *t, gt_bytes input, gt_ids *out
             st->n_vocab_hits++;
             rc = gt_ids_push(out, id);
             if (rc != GT_OK) { scratch_free(&sc); return rc; }
+        }
+        /* Fill the memo slot found above (same hash, no second probe walk).
+         * Only when the result fits; anything else bypasses next time too. */
+        if (slot && nsym >= 1 && nsym <= GT_PC_MAXIDS) {
+            char *lk = &t->ilock[(slot - t->pcache) / 8];
+            while (__atomic_test_and_set(lk, __ATOMIC_ACQUIRE)) { /* spin */ }
+            __atomic_fetch_add(&slot->seq, 1u, __ATOMIC_RELAXED);
+            slot->klen = (uint8_t)piece.len;
+            memcpy(slot->key, piece.ptr, piece.len);
+            slot->nids = (uint8_t)nsym;
+            for (size_t k = 0; k < nsym; k++)
+                slot->ids[k] = out->data[out->len - nsym + k];
+            __atomic_fetch_add(&slot->seq, 1u, __ATOMIC_RELEASE);
+            __atomic_clear(lk, __ATOMIC_RELEASE);
         }
     }
     scratch_free(&sc);

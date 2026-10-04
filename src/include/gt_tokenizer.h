@@ -46,6 +46,8 @@ typedef struct {
     size_t n_merged_symbols;
     size_t n_vocab_hits;
     size_t n_vocab_misses;
+    size_t n_pcache_hits;
+    size_t n_pcache_miss;
 } gt_encode_stats;
 
 /* Thread-safe encode sharing read-only tables; stats go to the caller.
