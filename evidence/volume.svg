@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="680" height="260" font-family="sans-serif">
+<rect x="0" y="0" width="680" height="260" fill="#0d1117" rx="8"/>
+<text fill="#ffffff" x="340" y="26" text-anchor="middle" font-size="16">Corpora tokenized (MB of input text, log scale)</text>
+<rect x="64" y="156" width="164" height="40" fill="#2b7bbb"/>
+<text fill="#ffffff" x="146" y="151" text-anchor="middle" font-size="11">20 MB</text>
+<text fill="#ffffff" x="146" y="212" text-anchor="middle" font-size="11">OWT slice</text>
+<rect x="248" y="132" width="164" height="64" fill="#3aa655"/>
+<text fill="#ffffff" x="330" y="127" text-anchor="middle" font-size="11">119 MB</text>
+<text fill="#ffffff" x="330" y="212" text-anchor="middle" font-size="11">bible text</text>
+<rect x="432" y="70" width="164" height="126" fill="#ee7b25"/>
+<text fill="#ffffff" x="514" y="65" text-anchor="middle" font-size="11">11826 MB</text>
+<text fill="#ffffff" x="514" y="212" text-anchor="middle" font-size="11">OWT full</text>
+</svg>
