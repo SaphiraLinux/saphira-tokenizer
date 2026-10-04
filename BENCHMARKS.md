@@ -35,7 +35,7 @@
 | C 24t, cache minimal (8-bit) | 93 MB/s | 153 MB/s |
 | C 24t, cache 256k (18-bit) | **880 MB/s** | **1701 MB/s (1.70 GB/s)** |
 | Rust 32t (cache always on) | 122 MB/s | 714 MB/s |
-| HF Python | 4.5 MB/s (2 MB sample) | — |
+| HF Python | 4.5 MB/s (2 MB sample) | ~46 MB/s (24 procs, full set) |
 
 Ramdisk (`/dev/shm`, corpora + fixture copied there) so these are pure
 tokenization, not disk I/O — disk numbers were identical (page cache), and
@@ -75,6 +75,11 @@ depending on corpus; HF ≈0.0045.
    ~170 MB/s — an 11× gap explained by their SIMD splitter + working cache +
    full-power server silicon vs our scalar + shared powersave box. Their number
    is plausible; we cannot verify the absolute from here and don't claim to.
+
+## Three-way validation (bible, full 1.23M verses)
+
+C, Rust, and HF Python (24 processes) all produce checksum `106370442169`.
+Every verse agrees across all three implementations.
 
 ## Training speed (200 KB OWT, vocab 2000)
 
