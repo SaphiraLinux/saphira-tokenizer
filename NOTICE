@@ -1,0 +1,50 @@
+saphira-tokenizer — notice
+
+Copyright (C) 2026 Andrew Smalley for and on behalf of AKADATA LIMITED.
+
+saphira-tokenizer is an independently authored C11 tokenizer: exact,
+portable LLM tokenization with deterministic token IDs.
+
+The C source in this distribution is licensed under the Business Source
+License 1.1 — see LICENSE.
+
+
+Third-party data
+----------------
+
+`src/data/ucd/DerivedGeneralCategory.txt`
+`src/data/ucd/PropList.txt`
+
+    © 2024 Unicode®, Inc. All rights reserved.
+    Distributed under the Unicode License v3
+    (https://www.unicode.org/license.txt).
+
+These two files are Unicode Character Database extracts, Unicode 16.0.0.
+They are data inputs to `src/tools/gen_unicode_tables.py`, which derives
+`gt_unicode_tables.c` from them. They are not code, and they are not
+covered by the Business Source License in LICENSE.
+
+The Unicode and the Unicode Logo are registered trademarks of Unicode, Inc.
+in the United States and other countries. This project is not endorsed by
+or affiliated with Unicode, Inc., and is not a modified version of any
+Unicode data file. The generated tables are our own work.
+
+
+Engineering references
+----------------------
+
+`marcelroed/gigatoken` (Rust) was consulted as an engineering reference
+for BPE semantics, the GPT-2 byte-level alphabet, and pretokenizer
+behaviour, frozen at upstream commit
+
+    fac0114b37120ec8a76362e9ee8e1c742aaafaef
+
+No Rust source from that project is vendored into this distribution. The
+C implementation is independent. Where the two disagree, the divergence
+is recorded in `evidence/validation.md` and `PHASE7_FINDINGS.md` rather
+than resolved by copying. See `AUDIT_PHASE1-4_PROVENANCE_ENVIRONMENT.md`
+for the file-level provenance comparison.
+
+The GPT-2 pretokenizer regular expression and the GPT-2 byte-to-unicode
+mapping are specifications from OpenAI. They are implemented here from
+their published behaviour. OpenAI is not a party to this project.

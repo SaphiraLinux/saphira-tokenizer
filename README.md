@@ -130,6 +130,13 @@ Cache size vs speed — 18 bits is the L3-bound sweet spot, 20 bits spills:
 
 ![Cache size sweep](evidence/cache-sweep.svg)
 
+## Licence
+
+Source is under the Business Source License 1.1, Saphira Linux terms — see
+`LICENSE`. Third-party data and the engineering references consulted are
+recorded in `NOTICE`; the Unicode Character Database extracts under
+`src/data/ucd/` are © Unicode®, Inc. and are not covered by the BSL.
+
 ## Known divergences (upstream defects, not C bugs)
 
 54/4821 (110/8921 expanded) vs corrected Rust, all inside the `80..BF` band,
